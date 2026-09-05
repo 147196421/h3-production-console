@@ -199,7 +199,7 @@ function importProject(data) {
   return projectId;
 }
 async function serveStatic(res, pathname) {
-  const rel = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
+  const rel = pathname === "/" ? "index.html" : decodeURIComponent(pathname.replace(/^\//, ""));
   const file = path.resolve(PUBLIC_DIR, rel);
   if (!file.startsWith(PUBLIC_DIR + path.sep) && file !== path.join(PUBLIC_DIR, "index.html")) return fail(res, 403, "禁止访问");
   try {
@@ -223,7 +223,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.0.0" });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.1.0" });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);

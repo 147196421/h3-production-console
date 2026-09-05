@@ -1,5 +1,37 @@
 const $ = s => document.querySelector(s);
 const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1 };
+const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
+
+function referenceCards(task) {
+  const source = `${task.reference_hint || ""} ${task.prompt || ""}`;
+  const cards = REFERENCE_NAMES.filter(name => source.includes(name)).map(name => ({
+    name, file: `${name}_三视图.jpg`,
+    url: `/references/${encodeURIComponent(`${name}_三视图.jpg`)}`,
+    kind: "人物标准图"
+  }));
+  if (task.shot_type === "尾帧续拍") {
+    const idx = state.tasks.findIndex(t => t.id === task.id);
+    const previous = idx > 0 ? state.tasks[idx - 1] : null;
+    cards.unshift(previous?.tail_frame_url ? {
+      name: `${previous.id} 尾帧`, file: `${previous.id.replace("-", "_")}_尾帧.jpg`,
+      url: previous.tail_frame_url, kind: "优先使用"
+    } : { name: "上一镜尾帧", file: "请先完成上一镜", url: null, kind: "等待生成" });
+  }
+  if (!cards.length) cards.push({ name:"场景首帧", file:"需要按本镜说明准备", url:null, kind:"场景素材" });
+  return cards;
+}
+
+function renderReferenceCards(task) {
+  return `<div class="reference-gallery">${referenceCards(task).map(a => a.url ? `
+    <article class="reference-card">
+      <a class="reference-preview" href="${a.url}" target="_blank"><img src="${a.url}" alt="${esc(a.name)}参考图"></a>
+      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>${esc(a.file)}</code></div>
+      <a class="download-ref" href="${a.url}" download="${esc(a.file)}">下载到相册</a>
+    </article>` : `
+    <article class="reference-card missing"><div class="reference-placeholder">暂无图片</div>
+      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>${esc(a.file)}</code></div>
+    </article>`).join("")}</div>`;
+}
 
 async function api(url, options = {}) {
   const res = await fetch(url, options);
@@ -51,7 +83,7 @@ function selectTask(id) {
 function renderEditor() {
   const t = state.current; const el = $("#taskEditor"); el.classList.remove("empty");
   el.innerHTML = `<div class="task-head"><div><span class="task-code">${esc(t.id)}</span><h2>${esc(t.title)}</h2><div class="chips"><span class="chip">${t.duration}秒</span><span class="chip">${esc(t.shot_type)}</span><span class="chip">${esc(t.status)}</span></div></div></div>
-    <div class="form-section"><label>本镜参考素材</label><textarea id="referenceHint" class="short-field">${esc(t.reference_hint)}</textarea></div>
+    <div class="form-section"><label>本镜参考素材 <small class="label-tip">点图片查看大图</small></label>${renderReferenceCards(t)}<textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea></div>
     <div class="form-section"><label>H3提示词 <button class="copy" data-copy="prompt">复制提示词</button></label><textarea id="prompt" class="prompt">${esc(t.prompt)}</textarea></div>
     <div class="form-section"><label>后期对白／声音 <button class="copy" data-copy="dialogue">复制对白</button></label><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
     <div class="form-section"><label>首尾衔接</label><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
