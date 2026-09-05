@@ -262,6 +262,14 @@ $("#copyDoc").onclick = async () => { await navigator.clipboard.writeText(state.
 $("#docsModal").onclick = e => { if (e.target === $("#docsModal")) closeDocs(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDocs(); });
 
+function renderNetworkSettings(network) {
+  state.network = network;
+  $("#proxyEnabled").checked = Boolean(network?.enabled);
+  $("#proxySummary").textContent = network?.enabled && network?.configured ? `${network.protocol} · ${network.display}` : network?.configured ? `已保存 · 当前直连` : "直连GitHub";
+  $("#proxySavedHint").textContent = network?.configured ? `已保存 ${network.display}；输入框留空会保留原地址` : "支持HTTP、HTTPS、SOCKS5和SOCKS5H";
+  $("#proxyUrl").value = "";
+  $("#proxyUrl").placeholder = network?.configured ? "留空保留已保存的代理" : "socks5://用户名:密码@主机:端口";
+}
 function updateSystemView(data) {
   state.system = data; state.systemChecked = true;
   $("#currentVersion").textContent = `V${data.current_version}`;
@@ -270,12 +278,13 @@ function updateSystemView(data) {
   $("#mediaStatus").classList.toggle("status-bad", !data.media_tools.ready);
   $("#updateBadge").classList.toggle("hidden", !data.remote.update_available);
   $("#runUpdate").disabled = !data.remote.update_available || Boolean(data.pending);
+  renderNetworkSettings(data.network || { enabled:false, configured:false, display:"未设置", protocol:null });
   if (data.pending) {
     $("#updateTitle").textContent = `正在等待更新到 V${data.pending.target_version}`;
     $("#updateMessage").textContent = "更新请求已提交，宿主机更新代理将在一分钟内处理。";
   } else if (data.remote.error) {
     $("#updateTitle").textContent = "暂时无法检查新版本";
-    $("#updateMessage").textContent = data.remote.error;
+    $("#updateMessage").textContent = `${data.remote.via_proxy ? "代理连接失败" : "直连GitHub失败"}：${data.remote.error}`;
   } else if (data.remote.update_available) {
     $("#updateTitle").textContent = `发现 V${data.remote.latest_version}`;
     $("#updateMessage").textContent = "可以在这里更新；系统会重新构建容器并保留全部制作数据。";
@@ -307,10 +316,43 @@ async function requestUpdate() {
     toast(result.message); await checkSystem(true);
   } catch (error) { toast(error.message); $("#runUpdate").disabled = false; }
 }
+async function testProxy() {
+  const button = $("#testProxy"); button.disabled = true; button.textContent = "测试中…";
+  try {
+    const proxyUrl = $("#proxyUrl").value.trim();
+    const body = proxyUrl ? { proxy_url:proxyUrl } : {};
+    const result = await api("/api/system/network/test", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+    toast(`代理可用，GitHub V${result.latest_version}，${result.latency_ms}ms`);
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; button.textContent = "测试连接"; }
+}
+async function saveProxy() {
+  const proxyUrl = $("#proxyUrl").value.trim();
+  const body = { enabled:$("#proxyEnabled").checked };
+  if (proxyUrl) body.proxy_url = proxyUrl;
+  try {
+    const result = await api("/api/system/network", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+    renderNetworkSettings(result.network); toast(result.message); await checkSystem(true);
+  } catch (error) { toast(error.message); }
+}
+async function clearProxy() {
+  if (!confirm("确认清除服务器中保存的代理地址？")) return;
+  try {
+    const result = await api("/api/system/network", { method:"DELETE" });
+    renderNetworkSettings(result.network); toast(result.message); await checkSystem(true);
+  } catch (error) { toast(error.message); }
+}
 $("#openSystem").onclick = openSystem;
 $("#closeSystem").onclick = closeSystem;
 $("#checkUpdate").onclick = () => checkSystem().catch(error => toast(error.message));
 $("#runUpdate").onclick = requestUpdate;
+$("#testProxy").onclick = testProxy;
+$("#saveProxy").onclick = saveProxy;
+$("#clearProxy").onclick = clearProxy;
+$("#toggleProxy").onclick = () => {
+  const input = $("#proxyUrl"); const visible = input.type === "text";
+  input.type = visible ? "password" : "text"; $("#toggleProxy").textContent = visible ? "显示" : "隐藏";
+};
 $("#systemModal").onclick = e => { if (e.target === $("#systemModal")) closeSystem(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSystem(); });
 

@@ -6,6 +6,7 @@ DATA_DIR="${2:-${PROJECT_DIR}/data}"
 REQUEST_FILE="${DATA_DIR}/update-request.json"
 STATUS_FILE="${DATA_DIR}/update-status.json"
 LOCK_FILE="${DATA_DIR}/update-agent.lock"
+GIT_PROXY_CONFIG="${DATA_DIR}/git-proxy.config"
 
 mkdir -p "${DATA_DIR}"
 exec 9>"${LOCK_FILE}"
@@ -32,8 +33,12 @@ trap on_error ERR
 write_status "running" "正在从GitHub拉取并重新构建容器"
 cd "${PROJECT_DIR}"
 test -d .git
-git -c safe.directory="${PROJECT_DIR}" fetch origin main
-git -c safe.directory="${PROJECT_DIR}" merge --ff-only origin/main
+GIT_NETWORK_ARGS=()
+if [ -s "${GIT_PROXY_CONFIG}" ]; then
+  GIT_NETWORK_ARGS=(-c "include.path=${GIT_PROXY_CONFIG}")
+fi
+git -c safe.directory="${PROJECT_DIR}" "${GIT_NETWORK_ARGS[@]}" fetch origin main
+git -c safe.directory="${PROJECT_DIR}" "${GIT_NETWORK_ARGS[@]}" merge --ff-only origin/main
 install -m 0755 "${PROJECT_DIR}/scripts/update-agent.sh" "/usr/local/sbin/h3-console-update-agent"
 docker compose build h3-console
 docker compose up -d --force-recreate h3-console

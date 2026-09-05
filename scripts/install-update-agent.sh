@@ -21,6 +21,8 @@ command -v flock >/dev/null
 
 install -m 0755 "${SOURCE_AGENT}" "${INSTALLED_AGENT}"
 mkdir -p "${DATA_DIR}"
+touch "${DATA_DIR}/git-proxy.config"
+chmod 0600 "${DATA_DIR}/git-proxy.config"
 printf '* * * * * root %s %s %s >> %s/update-agent.log 2>&1\n' "${INSTALLED_AGENT}" "${PROJECT_DIR}" "${DATA_DIR}" "${DATA_DIR}" > "${CRON_FILE}"
 chmod 0644 "${CRON_FILE}"
 
@@ -29,4 +31,3 @@ if command -v systemctl >/dev/null && systemctl list-unit-files cron.service >/d
 fi
 
 echo "后台一键更新代理已安装，最长一分钟检查一次更新请求。"
-

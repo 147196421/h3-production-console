@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json server.mjs seed-project.json ./
+COPY package.json server.mjs network-settings.mjs seed-project.json ./
 COPY public ./public
 COPY docs ./docs
 RUN mkdir -p /data && chown -R node:node /app /data
