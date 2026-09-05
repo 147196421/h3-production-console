@@ -353,6 +353,12 @@ $("#toggleProxy").onclick = () => {
   const input = $("#proxyUrl"); const visible = input.type === "text";
   input.type = visible ? "password" : "text"; $("#toggleProxy").textContent = visible ? "显示" : "隐藏";
 };
+$("#networkPanel").ontoggle = () => {
+  if ($("#networkPanel").open) requestAnimationFrame(() => $("#networkPanel").scrollIntoView({ block:"start" }));
+};
+$("#proxyUrl").onfocus = () => {
+  setTimeout(() => $("#proxyUrl").scrollIntoView({ block:"center" }), 250);
+};
 $("#systemModal").onclick = e => { if (e.target === $("#systemModal")) closeSystem(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSystem(); });
 
