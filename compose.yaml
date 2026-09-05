@@ -18,6 +18,3 @@ services:
       resources:
         limits:
           memory: 1G
-*** Add File: /workspace/scratch/c9ce92116ea6/h3-production-console/.env.example
-ADMIN_PASSWORD=请设置一个新的网页登录密码
-SESSION_SECRET=请填写至少32位随机字符串

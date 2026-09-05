@@ -59,6 +59,7 @@ db.exec(`
 `);
 
 await seedIfEmpty();
+await upgradeBundledPrompts();
 db.exec(`UPDATE tasks SET prompt = replace(replace(prompt, '2D写实动画', '高质量3D写实国漫动画'), '二维写实动画', '高质量3D写实国漫动画') WHERE prompt LIKE '%2D%' OR prompt LIKE '%二维%'`);
 
 function now() { return new Date().toISOString(); }
@@ -179,6 +180,12 @@ async function seedIfEmpty() {
   const seed = JSON.parse(await fs.readFile(path.join(ROOT, "seed-project.json"), "utf8"));
   importProject(seed);
 }
+async function upgradeBundledPrompts() {
+  const seed = JSON.parse(await fs.readFile(path.join(ROOT, "seed-project.json"), "utf8"));
+  const stmt = db.prepare("UPDATE tasks SET prompt=?,reference_hint=?,dialogue=?,continuity=?,updated_at=? WHERE id=? AND project_id=? AND prompt NOT LIKE '%【0-%'");
+  const stamp = now();
+  for (const task of seed.tasks || []) stmt.run(String(task.prompt || ""), String(task.reference_hint || ""), String(task.dialogue || ""), String(task.continuity || ""), stamp, safeId(task.id), safeId(seed.id));
+}
 function importProject(data) {
   if (!data || !data.id || !data.title || !Array.isArray(data.tasks)) throw new Error("项目JSON格式不正确");
   const projectId = safeId(data.id); if (!projectId) throw new Error("项目ID不正确");
@@ -205,8 +212,8 @@ async function serveStatic(res, pathname) {
   if (!file.startsWith(PUBLIC_DIR + path.sep) && file !== path.join(PUBLIC_DIR, "index.html")) return fail(res, 403, "禁止访问");
   try {
     const stat = await fs.stat(file); if (!stat.isFile()) throw new Error();
-    const ext = path.extname(file); const types = { ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".svg":"image/svg+xml" };
-    res.writeHead(200, { "content-type": types[ext] || "application/octet-stream", "content-length": stat.size, "cache-control": ext === ".html" ? "no-cache" : "public,max-age=3600" }); createReadStream(file).pipe(res);
+    const ext = path.extname(file).toLowerCase(); const types = { ".html":"text/html; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".css":"text/css; charset=utf-8", ".svg":"image/svg+xml", ".jpg":"image/jpeg", ".jpeg":"image/jpeg", ".png":"image/png" };
+    res.writeHead(200, { "content-type": types[ext] || "application/octet-stream", "content-length": stat.size, "cache-control": [".html",".js",".css"].includes(ext) ? "no-cache" : "public,max-age=3600" }); createReadStream(file).pipe(res);
   } catch { fail(res, 404, "文件不存在"); }
 }
 async function serveMedia(req, res, pathname) {
@@ -224,7 +231,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.2.0" });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.3.0" });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);

@@ -17,6 +17,9 @@ function referenceCards(task) {
       url: previous.tail_frame_url, kind: "优先使用"
     } : { name: "上一镜尾帧", file: "请先完成上一镜", url: null, kind: "等待生成" });
   }
+  const extraHints = String(task.reference_hint || "").split(/[；;+]/).map(v => v.trim()).filter(Boolean)
+    .filter(hint => !REFERENCE_NAMES.some(name => hint.includes(name)) && !/上传.*尾帧|必要时|人物图|标准图/.test(hint));
+  for (const hint of extraHints) cards.push({ name: hint, file: `${hint.replace(/\s+/g, "_")}.jpg`, url: null, kind: "待补场景图" });
   if (!cards.length) cards.push({ name:"场景首帧", file:"需要按本镜说明准备", url:null, kind:"场景素材" });
   return cards;
 }
@@ -25,11 +28,11 @@ function renderReferenceCards(task) {
   return `<div class="reference-gallery">${referenceCards(task).map(a => a.url ? `
     <article class="reference-card">
       <a class="reference-preview" href="${a.url}" target="_blank"><img src="${a.url}" alt="${esc(a.name)}参考图"></a>
-      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>${esc(a.file)}</code></div>
+      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>@${esc(a.file)}</code></div>
       <a class="download-ref" href="${a.url}" download="${esc(a.file)}">下载到相册</a>
     </article>` : `
     <article class="reference-card missing"><div class="reference-placeholder">暂无图片</div>
-      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>${esc(a.file)}</code></div>
+      <div class="reference-info"><span>${esc(a.kind)}</span><strong>${esc(a.name)}</strong><code>@${esc(a.file)}</code></div>
     </article>`).join("")}</div>`;
 }
 
@@ -43,11 +46,9 @@ function to3DPrompt(prompt) {
 
 function buildHaomjPrompt(task) {
   const assets = referenceCards(task);
-  const ready = assets.filter(a => a.url).map(a => a.file);
   const missing = assets.filter(a => !a.url).map(a => `${a.name}（${a.file}）`);
-  const atLine = ready.length ? ready.map(name => `@${name}`).join("、") : "本镜暂无可直接引用的图片";
   const missingLine = missing.length ? `\n【尚需准备】${missing.join("、")}` : "";
-  return `【先上传参考图，然后在好漫剧唯一的提示词框点击“@引用参考图”，依次选择】\n${atLine}${missingLine}\n\n【3D视频提示词】\n${to3DPrompt(task.prompt)}\n\n【本镜结尾与衔接】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一限制】\n全程采用高质量3D写实国漫动画、PBR材质、电影级光影，并保持参考图人物身份、五官、发型、年龄、服装和身材一致；禁止平面插画感、人物变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+  return `【使用方法】下文的 @文件名 是插入位置提示。粘贴到好漫剧后，在每个对应位置删除纯文字，再点击“@引用参考图”选择同名图片，使它变成平台真正的图片标签。不要把全部参考图堆在开头。${missingLine}\n\n${to3DPrompt(task.prompt)}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一质量】\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
 }
 
 async function api(url, options = {}) {
@@ -101,8 +102,8 @@ function renderEditor() {
   const t = state.current; const el = $("#taskEditor"); el.classList.remove("empty");
   el.innerHTML = `<div class="task-head"><div><span class="task-code">${esc(t.id)}</span><h2>${esc(t.title)}</h2><div class="chips"><span class="chip">${t.duration}秒</span><span class="chip">${esc(t.shot_type)}</span><span class="chip">${esc(t.status)}</span></div></div></div>
     <div class="form-section"><label>本镜参考素材 <small class="label-tip">点图片查看大图</small></label>${renderReferenceCards(t)}<textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea></div>
-    <div class="haomj-steps"><strong>好漫剧操作顺序</strong><ol><li>下载上面的参考图到相册</li><li>在好漫剧上传图片</li><li>在唯一提示词框点“@引用参考图”，按上面文件名选择</li><li>复制下面整段提示词并生成</li></ol></div>
-    <div class="form-section platform-section"><label>好漫剧单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">参考图名单、3D风格和首尾衔接已经合并，不需要再找其他输入框。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildHaomjPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
+    <div class="haomj-steps"><strong>好漫剧操作顺序</strong><ol><li>下载上面的参考图到相册，再上传到好漫剧</li><li>复制下面整段提示词到唯一输入框</li><li>从上往下找到每个“@文件名”</li><li>在原位置点“@引用参考图”，选同名图片并删除文字占位</li></ol></div>
+    <div class="form-section platform-section"><label>好漫剧专业单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">按秒分镜、3D质量、首尾衔接已合并；@图片分散在真正需要它的位置，不要统一挪到开头。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildHaomjPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
     <div class="form-section"><label>后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">不要输入好漫剧。生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
     <div class="form-section"><label>内部衔接记录</label><p class="field-help">不用单独输入好漫剧，内容已经自动并入上面的单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
     <div class="form-section"><label>制作备注</label><textarea id="notes" class="short-field" placeholder="记录废片原因、重做要求……">${esc(t.notes)}</textarea></div>
