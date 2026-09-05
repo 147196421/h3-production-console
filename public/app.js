@@ -1,6 +1,8 @@
 const $ = s => document.querySelector(s);
 const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1 };
 const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
+const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
+const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
 
 function referenceCards(task) {
   const source = `${task.reference_hint || ""} ${task.prompt || ""}`;
@@ -9,6 +11,10 @@ function referenceCards(task) {
     url: `/references/${encodeURIComponent(`${name}_三视图.jpg`)}`,
     kind: "人物标准图"
   }));
+  if (usesFixedHouse(task, source)) cards.unshift({
+    name: "林家土屋夜景首帧", file: "林家土屋夜景首帧.jpg",
+    url: `/references/${encodeURIComponent("林家土屋夜景首帧.jpg")}`, kind: "固定场景母版"
+  });
   if (task.shot_type === "尾帧续拍") {
     const idx = state.tasks.findIndex(t => t.id === task.id);
     const previous = idx > 0 ? state.tasks[idx - 1] : null;
@@ -18,7 +24,7 @@ function referenceCards(task) {
     } : { name: "上一镜尾帧", file: "请先完成上一镜", url: null, kind: "等待生成" });
   }
   const extraHints = String(task.reference_hint || "").split(/[；;+]/).map(v => v.trim()).filter(Boolean)
-    .filter(hint => !REFERENCE_NAMES.some(name => hint.includes(name)) && !/上传.*尾帧|必要时|人物图|标准图/.test(hint));
+    .filter(hint => !REFERENCE_NAMES.some(name => hint.includes(name)) && !/上传.*尾帧|必要时|人物图|标准图|土屋/.test(hint));
   for (const hint of extraHints) cards.push({ name: hint, file: `${hint.replace(/\s+/g, "_")}.jpg`, url: null, kind: "待补场景图" });
   if (!cards.length) cards.push({ name:"场景首帧", file:"需要按本镜说明准备", url:null, kind:"场景素材" });
   return cards;
@@ -45,10 +51,12 @@ function to3DPrompt(prompt) {
 }
 
 function buildHaomjPrompt(task) {
-  const assets = referenceCards(task);
-  const missing = assets.filter(a => !a.url).map(a => `${a.name}（${a.file}）`);
-  const missingLine = missing.length ? `\n【尚需准备】${missing.join("、")}` : "";
-  return `【使用方法】下文的 @文件名 是插入位置提示。粘贴到好漫剧后，在每个对应位置删除纯文字，再点击“@引用参考图”选择同名图片，使它变成平台真正的图片标签。不要把全部参考图堆在开头。${missingLine}\n\n${to3DPrompt(task.prompt)}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一质量】\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+  let prompt = to3DPrompt(task.prompt);
+  const source = `${task.reference_hint || ""} ${prompt}`;
+  if (usesFixedHouse(task, source) && !prompt.includes("@林家土屋夜景首帧.jpg")) {
+    prompt = prompt.replace("【画幅与风格】", "【画幅与风格】以 @林家土屋夜景首帧.jpg 锁定床、窗、木桌、收音机、日历、煤油灯的位置和夜间光线；");
+  }
+  return `${prompt}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一质量】\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
 }
 
 async function api(url, options = {}) {

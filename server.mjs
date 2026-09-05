@@ -231,7 +231,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.3.0" });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.3.1" });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);
