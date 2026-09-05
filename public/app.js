@@ -47,7 +47,7 @@ function buildHaomjPrompt(task) {
   const missing = assets.filter(a => !a.url).map(a => `${a.name}（${a.file}）`);
   const atLine = ready.length ? ready.map(name => `@${name}`).join("、") : "本镜暂无可直接引用的图片";
   const missingLine = missing.length ? `\n【尚需准备】${missing.join("、")}` : "";
-  return `【先上传参考图，然后在好漫剧唯一的提示词框点击“@引用参考图”，依次选择】\n${atLine}${missingLine}\n\n【3D视频提示词】\n${to3DPrompt(task.prompt)}\n\n【本镜结尾与衔接】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一限制】\n全程保持参考图人物身份、五官、发型、年龄、服装和身材一致；禁止2D平面画风，禁止人物变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+  return `【先上传参考图，然后在好漫剧唯一的提示词框点击“@引用参考图”，依次选择】\n${atLine}${missingLine}\n\n【3D视频提示词】\n${to3DPrompt(task.prompt)}\n\n【本镜结尾与衔接】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一限制】\n全程采用高质量3D写实国漫动画、PBR材质、电影级光影，并保持参考图人物身份、五官、发型、年龄、服装和身材一致；禁止平面插画感、人物变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
 }
 
 async function api(url, options = {}) {
