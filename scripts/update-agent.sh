@@ -32,8 +32,8 @@ trap on_error ERR
 write_status "running" "正在从GitHub拉取并重新构建容器"
 cd "${PROJECT_DIR}"
 test -d .git
-git fetch origin main
-git merge --ff-only origin/main
+git -c safe.directory="${PROJECT_DIR}" fetch origin main
+git -c safe.directory="${PROJECT_DIR}" merge --ff-only origin/main
 install -m 0755 "${PROJECT_DIR}/scripts/update-agent.sh" "/usr/local/sbin/h3-console-update-agent"
 docker compose build h3-console
 docker compose up -d --force-recreate h3-console
