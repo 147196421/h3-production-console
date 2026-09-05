@@ -20,7 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "147196421/h3-production-console";
 const UPDATE_REQUEST_PATH = path.join(DATA_DIR, "update-request.json");
 const UPDATE_STATUS_PATH = path.join(DATA_DIR, "update-status.json");
@@ -67,6 +67,7 @@ db.exec(`
 
 await seedIfEmpty();
 await upgradeBundledPrompts();
+await upgradeEpisodeOneContinuity();
 db.exec(`UPDATE tasks SET prompt = replace(replace(prompt, '2D写实动画', '高质量3D写实国漫动画'), '二维写实动画', '高质量3D写实国漫动画') WHERE prompt LIKE '%2D%' OR prompt LIKE '%二维%'`);
 
 function now() { return new Date().toISOString(); }
@@ -233,6 +234,15 @@ async function upgradeBundledPrompts() {
   const stmt = db.prepare("UPDATE tasks SET prompt=?,reference_hint=?,dialogue=?,continuity=?,updated_at=? WHERE id=? AND project_id=? AND prompt NOT LIKE '%【0-%'");
   const stamp = now();
   for (const task of seed.tasks || []) stmt.run(String(task.prompt || ""), String(task.reference_hint || ""), String(task.dialogue || ""), String(task.continuity || ""), stamp, safeId(task.id), safeId(seed.id));
+}
+async function upgradeEpisodeOneContinuity() {
+  const seed = JSON.parse(await fs.readFile(path.join(ROOT, "seed-project.json"), "utf8"));
+  const task = seed.tasks?.find(item => item.id === "EP01-C03");
+  if (!task) return;
+  db.prepare(`UPDATE tasks SET title=?,shot_type=?,reference_hint=?,prompt=?,dialogue=?,continuity=?,updated_at=?
+    WHERE id='EP01-C03' AND project_id=? AND prompt LIKE '%固定双人中景%' AND prompt LIKE '%背对丈夫%'`).run(
+      task.title, task.shot_type, task.reference_hint, task.prompt, task.dialogue, task.continuity, now(), safeId(seed.id)
+    );
 }
 function importProject(data) {
   if (!data || !data.id || !data.title || !Array.isArray(data.tasks)) throw new Error("项目JSON格式不正确");

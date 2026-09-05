@@ -4,7 +4,7 @@ const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大
 const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
 const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
 const TASK_REFERENCE_ASSETS = {
-  "EP01-C03": [{ name:"收包袱双人构图", file:"林家土屋收包袱双人首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @林家土屋收包袱双人首帧.jpg 锁定苏清禾前景、林国强背景和两人距离；" }],
+  "EP01-C03": [{ name:"收包袱双人构图", file:"林家土屋收包袱双人首帧.jpg", kind:"后半段站位参考", anchor:"【6-8秒】", instruction:"以 @林家土屋收包袱双人首帧.jpg 仅锁定妻子入屋后的双人站位，不能用它替代开头的上一镜尾帧；" }],
   "EP01-C04": [{ name:"小满躲母亲近景", file:"小满躲母亲儿童近景首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @小满躲母亲儿童近景首帧.jpg 锁定母女遮挡关系、儿童视线和近景机位；" }],
   "EP01-C05": [{ name:"林家三人对峙构图", file:"林家三人对峙首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @林家三人对峙首帧.jpg 锁定三人站位、距离和对峙轴线；" }],
   "EP01-C06": [{ name:"1998破旧收音机", file:"1998破旧收音机道具三视图.jpg", kind:"固定道具图", anchor:"【0-2秒】", instruction:"以 @1998破旧收音机道具三视图.jpg 锁定收音机外形、旋钮、天线和磨损材质；" }],
@@ -209,7 +209,7 @@ function renderOutput() {
     $("#startTime").textContent = `${Number(t.start_time).toFixed(2)}s`; $("#tailTime").textContent = `${Number(t.tail_time).toFixed(2)}s`;
   }
   const idx = state.tasks.findIndex(x => x.id === t.id); const next = state.tasks[idx+1];
-  $("#nextHint").textContent = !next ? "这是本集最后一个镜头。" : next.shot_type === "尾帧续拍" ? `下一镜 ${next.id} 需要使用本镜推荐尾帧。` : `下一镜 ${next.id} 是“${next.shot_type}”，不必强行使用本镜尾帧。`;
+  $("#nextHint").textContent = !next ? "这是本集最后一个镜头。" : next.shot_type === "尾帧续拍" ? `下一镜 ${next.id} 必须使用本镜推荐尾帧，剧情和画面连续生成。` : `下一镜 ${next.id} 为新机位：剧情连续但不使用本镜尾帧，剪辑时直接硬切。`;
 }
 async function uploadVideo(file) {
   if (!state.current || !file) return; const form = new FormData(); form.append("video", file);
