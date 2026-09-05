@@ -33,6 +33,23 @@ function renderReferenceCards(task) {
     </article>`).join("")}</div>`;
 }
 
+function to3DPrompt(prompt) {
+  const cleaned = String(prompt || "")
+    .replaceAll("2D写实动画", "高质量3D写实国漫动画")
+    .replaceAll("二维写实动画", "高质量3D写实国漫动画")
+    .replaceAll("竖屏2D写实动画", "竖屏9:16，高质量3D写实国漫动画");
+  return cleaned.includes("3D") ? cleaned : `高质量3D写实国漫动画，电影级灯光，PBR材质，真实布料与皮肤质感，人物比例自然。${cleaned}`;
+}
+
+function buildHaomjPrompt(task) {
+  const assets = referenceCards(task);
+  const ready = assets.filter(a => a.url).map(a => a.file);
+  const missing = assets.filter(a => !a.url).map(a => `${a.name}（${a.file}）`);
+  const atLine = ready.length ? ready.map(name => `@${name}`).join("、") : "本镜暂无可直接引用的图片";
+  const missingLine = missing.length ? `\n【尚需准备】${missing.join("、")}` : "";
+  return `【先上传参考图，然后在好漫剧唯一的提示词框点击“@引用参考图”，依次选择】\n${atLine}${missingLine}\n\n【3D视频提示词】\n${to3DPrompt(task.prompt)}\n\n【本镜结尾与衔接】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一限制】\n全程保持参考图人物身份、五官、发型、年龄、服装和身材一致；禁止2D平面画风，禁止人物变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+}
+
 async function api(url, options = {}) {
   const res = await fetch(url, options);
   if (res.status === 401) { showLogin(); throw new Error("请先登录"); }
@@ -84,9 +101,10 @@ function renderEditor() {
   const t = state.current; const el = $("#taskEditor"); el.classList.remove("empty");
   el.innerHTML = `<div class="task-head"><div><span class="task-code">${esc(t.id)}</span><h2>${esc(t.title)}</h2><div class="chips"><span class="chip">${t.duration}秒</span><span class="chip">${esc(t.shot_type)}</span><span class="chip">${esc(t.status)}</span></div></div></div>
     <div class="form-section"><label>本镜参考素材 <small class="label-tip">点图片查看大图</small></label>${renderReferenceCards(t)}<textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea></div>
-    <div class="form-section"><label>H3提示词 <button class="copy" data-copy="prompt">复制提示词</button></label><textarea id="prompt" class="prompt">${esc(t.prompt)}</textarea></div>
-    <div class="form-section"><label>后期对白／声音 <button class="copy" data-copy="dialogue">复制对白</button></label><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
-    <div class="form-section"><label>首尾衔接</label><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
+    <div class="haomj-steps"><strong>好漫剧操作顺序</strong><ol><li>下载上面的参考图到相册</li><li>在好漫剧上传图片</li><li>在唯一提示词框点“@引用参考图”，按上面文件名选择</li><li>复制下面整段提示词并生成</li></ol></div>
+    <div class="form-section platform-section"><label>好漫剧单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">参考图名单、3D风格和首尾衔接已经合并，不需要再找其他输入框。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildHaomjPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
+    <div class="form-section"><label>后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">不要输入好漫剧。生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
+    <div class="form-section"><label>内部衔接记录</label><p class="field-help">不用单独输入好漫剧，内容已经自动并入上面的单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
     <div class="form-section"><label>制作备注</label><textarea id="notes" class="short-field" placeholder="记录废片原因、重做要求……">${esc(t.notes)}</textarea></div>
     <div class="actions"><button id="saveTask" class="primary">保存修改</button><button id="markRetry" class="danger">标记需重做</button><button id="nextTask" class="secondary">下一镜 →</button></div>`;
   document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => { await navigator.clipboard.writeText($("#"+b.dataset.copy).value); toast("已复制"); });

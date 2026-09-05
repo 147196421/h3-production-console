@@ -59,6 +59,7 @@ db.exec(`
 `);
 
 await seedIfEmpty();
+db.exec(`UPDATE tasks SET prompt = replace(replace(prompt, '2D写实动画', '高质量3D写实国漫动画'), '二维写实动画', '高质量3D写实国漫动画') WHERE prompt LIKE '%2D%' OR prompt LIKE '%二维%'`);
 
 function now() { return new Date().toISOString(); }
 function safeId(value) { return String(value || "").replace(/[^a-zA-Z0-9_-]/g, ""); }
@@ -223,7 +224,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.1.0" });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.2.0" });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);
