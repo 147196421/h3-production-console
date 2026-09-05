@@ -60,7 +60,7 @@ function to3DPrompt(prompt) {
   return cleaned.includes("3D") ? cleaned : `高质量3D写实国漫动画，电影级灯光，PBR材质，真实布料与皮肤质感，人物比例自然。${cleaned}`;
 }
 
-function buildHaomjPrompt(task) {
+function buildPlatformPrompt(task) {
   let prompt = to3DPrompt(task.prompt);
   const source = `${task.reference_hint || ""} ${prompt}`;
   if (usesFixedHouse(task, source) && !prompt.includes("@林家土屋夜景首帧.jpg")) {
@@ -123,10 +123,10 @@ function renderEditor() {
   const t = state.current; const el = $("#taskEditor"); el.classList.remove("empty");
   el.innerHTML = `<div class="task-head"><div><span class="task-code">${esc(t.id)}</span><h2>${esc(t.title)}</h2><div class="chips"><span class="chip">${t.duration}秒</span><span class="chip">${esc(t.shot_type)}</span><span class="chip">${esc(t.status)}</span></div></div></div>
     <div class="form-section"><label>本镜参考素材 <small class="label-tip">点图片查看大图</small></label>${renderReferenceCards(t)}<textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea></div>
-    <div class="haomj-steps"><strong>好漫剧操作顺序</strong><ol><li>下载上面的参考图到相册，再上传到好漫剧</li><li>复制下面整段提示词到唯一输入框</li><li>从上往下找到每个“@文件名”</li><li>在原位置点“@引用参考图”，选同名图片并删除文字占位</li></ol></div>
-    <div class="form-section platform-section"><label>好漫剧专业单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">按秒分镜、3D质量、首尾衔接已合并；@图片分散在真正需要它的位置，不要统一挪到开头。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildHaomjPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
-    <div class="form-section"><label>后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">不要输入好漫剧。生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
-    <div class="form-section"><label>内部衔接记录</label><p class="field-help">不用单独输入好漫剧，内容已经自动并入上面的单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
+    <div class="platform-steps"><strong>操作步骤</strong><ol><li>下载上面的参考图到相册，再上传到视频生成平台</li><li>复制下面整段提示词到唯一输入框</li><li>从上往下找到每个“@文件名”</li><li>在原位置点“@引用参考图”，选同名图片并删除文字占位</li></ol></div>
+    <div class="form-section platform-section"><label>专业单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">按秒分镜、3D质量、首尾衔接已合并；@图片分散在真正需要它的位置，不要统一挪到开头。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildPlatformPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
+    <div class="form-section"><label>后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">这部分不要放入画面生成提示词；生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
+    <div class="form-section"><label>内部衔接记录</label><p class="field-help">不需要单独输入，内容已经自动并入上面的单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
     <div class="form-section"><label>制作备注</label><textarea id="notes" class="short-field" placeholder="记录废片原因、重做要求……">${esc(t.notes)}</textarea></div>
     <div class="actions"><button id="saveTask" class="primary">保存修改</button><button id="markRetry" class="danger">标记需重做</button><button id="nextTask" class="secondary">下一镜 →</button></div>`;
   document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => { await navigator.clipboard.writeText($("#"+b.dataset.copy).value); toast("已复制"); });
@@ -167,5 +167,27 @@ $("#episodeSelect").onchange = async e => { state.episode=Number(e.target.value)
 $("#videoInput").onchange = e => uploadVideo(e.target.files[0]);
 const drop = $("#dropZone"); drop.ondragover = e => { e.preventDefault(); drop.classList.add("drag"); }; drop.ondragleave = () => drop.classList.remove("drag"); drop.ondrop = e => { e.preventDefault(); drop.classList.remove("drag"); uploadVideo(e.dataTransfer.files[0]); };
 $("#importFile").onchange = async e => { const f=e.target.files[0]; if(!f)return; try { const data=JSON.parse(await f.text()); await api("/api/projects/import",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(data)}); await loadProjects(); toast("任务已导入"); } catch(err){toast(err.message)} e.target.value=""; };
+
+async function openDocs() {
+  $("#docsModal").classList.remove("hidden");
+  try {
+    const { docs } = await api("/api/docs");
+    $("#docsList").innerHTML = docs.map((doc, index) => `<button class="doc-item${index === 0 ? " active" : ""}" data-doc="${esc(doc.name)}">${esc(doc.title)}</button>`).join("");
+    document.querySelectorAll(".doc-item").forEach(button => button.onclick = () => loadDoc(button.dataset.doc, button));
+    if (docs[0]) await loadDoc(docs[0].name, $(".doc-item"));
+  } catch (error) { $("#docContent").textContent = error.message; }
+}
+async function loadDoc(name, button) {
+  const doc = await api(`/api/docs/${encodeURIComponent(name)}`);
+  document.querySelectorAll(".doc-item").forEach(item => item.classList.toggle("active", item === button));
+  $("#docHeading").textContent = doc.title;
+  $("#docContent").textContent = doc.content;
+}
+function closeDocs() { $("#docsModal").classList.add("hidden"); }
+$("#openDocs").onclick = openDocs;
+$("#closeDocs").onclick = closeDocs;
+$("#copyDoc").onclick = async () => { await navigator.clipboard.writeText($("#docContent").textContent); toast("文档已复制"); };
+$("#docsModal").onclick = e => { if (e.target === $("#docsModal")) closeDocs(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDocs(); });
 
 loadProjects().catch(e => { if (e.message !== "请先登录") toast(e.message); });

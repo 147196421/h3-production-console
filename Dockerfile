@@ -7,6 +7,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY package.json server.mjs seed-project.json ./
 COPY public ./public
+COPY docs ./docs
 RUN mkdir -p /data && chown -R node:node /app /data
 
 USER node

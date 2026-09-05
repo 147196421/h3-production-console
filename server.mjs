@@ -11,12 +11,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT, "data"));
 const PUBLIC_DIR = path.join(ROOT, "public");
+const DOCS_DIR = path.join(ROOT, "docs");
 const DB_PATH = path.join(DATA_DIR, "h3-console.sqlite");
 const PORT = Number(process.env.PORT || 8926);
 const HOST = process.env.HOST || "0.0.0.0";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me-now";
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
+const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
+const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "videos"), { recursive: true });
@@ -104,22 +107,37 @@ function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
     const out = []; const err = [];
+    let settled = false;
     child.stdout.on("data", d => out.push(d)); child.stderr.on("data", d => err.push(d));
-    child.on("error", reject);
-    child.on("close", code => code === 0 ? resolve({ stdout: Buffer.concat(out), stderr: Buffer.concat(err).toString() }) : reject(new Error(Buffer.concat(err).toString() || `${command}退出码${code}`)));
+    child.on("error", error => {
+      if (settled) return; settled = true;
+      reject(error.code === "ENOENT" ? new Error(`服务器缺少${command}。请安装FFmpeg后重启服务，或用Docker镜像重新构建。`) : error);
+    });
+    child.on("close", code => {
+      if (settled) return; settled = true;
+      code === 0 ? resolve({ stdout: Buffer.concat(out), stderr: Buffer.concat(err).toString() }) : reject(new Error(Buffer.concat(err).toString() || `${command}退出码${code}`));
+    });
   });
 }
+let mediaToolStatusPromise;
+function mediaToolStatus() {
+  if (!mediaToolStatusPromise) mediaToolStatusPromise = Promise.all([
+    run(FFMPEG_BIN, ["-version"]).then(() => true, () => false),
+    run(FFPROBE_BIN, ["-version"]).then(() => true, () => false)
+  ]).then(([ffmpeg, ffprobe]) => ({ ffmpeg, ffprobe, ready: ffmpeg && ffprobe }));
+  return mediaToolStatusPromise;
+}
 async function probeDuration(file) {
-  const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file]);
+  const r = await run(FFPROBE_BIN, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file]);
   const duration = Number(r.stdout.toString().trim());
   if (!Number.isFinite(duration) || duration <= 0) throw new Error("无法读取视频时长");
   return duration;
 }
 async function extractFrame(video, timestamp, output) {
-  await run("ffmpeg", ["-y", "-v", "error", "-ss", timestamp.toFixed(3), "-i", video, "-frames:v", "1", "-q:v", "2", output]);
+  await run(FFMPEG_BIN, ["-y", "-v", "error", "-ss", timestamp.toFixed(3), "-i", video, "-frames:v", "1", "-q:v", "2", output]);
 }
 async function imageScore(file) {
-  const r = await run("ffmpeg", ["-v", "error", "-i", file, "-vf", "scale=64:36,format=gray", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]);
+  const r = await run(FFMPEG_BIN, ["-v", "error", "-i", file, "-vf", "scale=64:36,format=gray", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]);
   const p = r.stdout; if (p.length < 64 * 36) return -1e9;
   let sum = 0; for (const v of p) sum += v;
   const mean = sum / p.length;
@@ -231,7 +249,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.5.0" });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.6.0", media_tools: await mediaToolStatus() });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);
@@ -241,6 +259,23 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/api/logout" && req.method === "POST") return json(res, 200, { ok: true }, { "set-cookie": "h3_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0" });
     if (pathname.startsWith("/api/") && !validSession(req)) return fail(res, 401, "请先登录");
+    if (pathname === "/api/docs" && req.method === "GET") {
+      const files = (await fs.readdir(DOCS_DIR)).filter(name => name.endsWith(".md")).sort((a, b) => a.localeCompare(b, "zh-CN"));
+      const docs = await Promise.all(files.map(async name => {
+        const firstLine = (await fs.readFile(path.join(DOCS_DIR, name), "utf8")).split(/\r?\n/, 1)[0];
+        return { name, title: firstLine.replace(/^#\s*/, "") || name.replace(/\.md$/, "") };
+      }));
+      return json(res, 200, { docs });
+    }
+    const docMatch = pathname.match(/^\/api\/docs\/(.+)$/);
+    if (docMatch && req.method === "GET") {
+      const name = decodeURIComponent(docMatch[1]);
+      if (path.basename(name) !== name || !name.endsWith(".md")) return fail(res, 400, "文档名称不正确");
+      const content = await fs.readFile(path.join(DOCS_DIR, name), "utf8").catch(() => null);
+      if (content === null) return fail(res, 404, "文档不存在");
+      const title = content.split(/\r?\n/, 1)[0].replace(/^#\s*/, "") || name.replace(/\.md$/, "");
+      return json(res, 200, { name, title, content });
+    }
     if (pathname === "/api/projects" && req.method === "GET") {
       const projects = db.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all().map(p => ({ ...p, summary: summary(p.id) })); return json(res, 200, { projects });
     }
@@ -263,6 +298,8 @@ const server = http.createServer(async (req, res) => {
     const uploadMatch = pathname.match(/^\/api\/tasks\/([a-zA-Z0-9_-]+)\/video$/);
     if (uploadMatch && req.method === "POST") {
       const task = db.prepare("SELECT * FROM tasks WHERE id=?").get(uploadMatch[1]); if (!task) return fail(res, 404, "任务不存在");
+      const tools = await mediaToolStatus();
+      if (!tools.ready) return fail(res, 503, "服务器尚未安装完整的FFmpeg组件，请安装ffmpeg和ffprobe并重启服务后再上传。");
       const length = Number(req.headers["content-length"] || 0); if (length > MAX_UPLOAD_MB * 1024 * 1024) return fail(res, 413, `视频不能超过${MAX_UPLOAD_MB}MB`);
       const form = await parseMultipart(req); const file = form.get("video");
       if (!file || typeof file.arrayBuffer !== "function") return fail(res, 400, "请选择视频文件");
@@ -286,4 +323,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`H3制作台已启动：http://${HOST}:${PORT}`);
   if (ADMIN_PASSWORD === "change-me-now") console.warn("警告：请设置ADMIN_PASSWORD后再开放公网访问");
+  mediaToolStatus().then(status => {
+    if (!status.ready) console.warn("警告：缺少FFmpeg或ffprobe，视频上传暂不可用。请安装FFmpeg或重新构建Docker镜像。");
+  });
 });

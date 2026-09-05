@@ -9,7 +9,7 @@
 - 按秒拆分的H3专业提示词、参考素材、对白与连续性记录
 - 每个镜头自动显示人物参考图、中文姓名和相册文件名
 - 支持查看大图、下载原图；尾帧续拍镜头自动显示上一镜尾帧
-- 针对好漫剧单提示词框：`@文件名` 就地出现在对应时间段，并自动合并3D风格与首尾衔接要求
+- 针对单提示词框：`@文件名` 就地出现在对应时间段，并自动合并3D风格与首尾衔接要求
 - 手机端显示参考图缩略图和醒目的 `@文件名`，页头版本号用于确认升级是否成功
 - 第一集专业资产包：固定土屋、收包袱双人构图、母女儿童近景、三人对峙、收音机三视图、维修蒙太奇参考板和一家三口同框首帧
 - MP4、MOV、WEBM、MKV上传
@@ -18,6 +18,7 @@
 - 标记完成或需要重做
 - JSON任务包导入
 - 登录密码保护
+- 登录后可直接打开“项目文档”，在线阅读和复制全剧大纲、生产规范与AI交接资料
 - SQLite持久保存，无需额外数据库
 
 首次启动会载入《重回1998》第一集的10个H3生产任务作为示例。
@@ -94,4 +95,19 @@ docker compose logs --tail=100 h3-console
 docker compose restart h3-console
 ```
 
-上传失败时先确认视频没有超过300MB、磁盘空间充足，并检查FFmpeg处理日志。
+上传失败时先确认视频没有超过300MB、磁盘空间充足，并检查FFmpeg处理日志。健康接口里的`media_tools.ready`必须为`true`。
+
+如果提示服务器缺少`ffprobe`，Docker部署请重新构建镜像：
+
+```bash
+docker compose build --no-cache h3-console
+docker compose up -d --force-recreate h3-console
+```
+
+如果直接在Ubuntu宿主机运行Node，请先安装组件后重启服务：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+ffprobe -version
+```
