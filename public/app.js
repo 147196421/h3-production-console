@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1 };
+const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1, systemChecked: false, system: null };
 const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
 const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
 const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
@@ -90,6 +90,7 @@ async function loadProjects() {
   $("#projectSelect").innerHTML = projects.map(p => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("");
   $("#projectSelect").value = state.projectId || "";
   await loadAllTasks();
+  if (!state.systemChecked) checkSystem(true).catch(() => {});
 }
 async function loadAllTasks() {
   if (!state.projectId) return;
@@ -189,5 +190,56 @@ $("#closeDocs").onclick = closeDocs;
 $("#copyDoc").onclick = async () => { await navigator.clipboard.writeText($("#docContent").textContent); toast("文档已复制"); };
 $("#docsModal").onclick = e => { if (e.target === $("#docsModal")) closeDocs(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDocs(); });
+
+function updateSystemView(data) {
+  state.system = data; state.systemChecked = true;
+  $("#currentVersion").textContent = `V${data.current_version}`;
+  $("#latestVersion").textContent = data.remote.latest_version ? `V${data.remote.latest_version}` : "暂时无法获取";
+  $("#mediaStatus").textContent = data.media_tools.ready ? "FFmpeg正常" : "组件缺失";
+  $("#mediaStatus").classList.toggle("status-bad", !data.media_tools.ready);
+  $("#updateBadge").classList.toggle("hidden", !data.remote.update_available);
+  $("#runUpdate").disabled = !data.remote.update_available || Boolean(data.pending);
+  if (data.pending) {
+    $("#updateTitle").textContent = `正在等待更新到 V${data.pending.target_version}`;
+    $("#updateMessage").textContent = "更新请求已提交，宿主机更新代理将在一分钟内处理。";
+  } else if (data.remote.error) {
+    $("#updateTitle").textContent = "暂时无法检查新版本";
+    $("#updateMessage").textContent = data.remote.error;
+  } else if (data.remote.update_available) {
+    $("#updateTitle").textContent = `发现 V${data.remote.latest_version}`;
+    $("#updateMessage").textContent = "可以在这里更新；系统会重新构建容器并保留全部制作数据。";
+  } else {
+    $("#updateTitle").textContent = "当前已经是最新版";
+    $("#updateMessage").textContent = `最近检查：${new Date(data.remote.checked_at).toLocaleString("zh-CN")}`;
+  }
+  if (data.update) {
+    const map = { success:"更新成功", failed:"更新失败", running:"正在更新" };
+    $("#updateHistory").textContent = `${map[data.update.state] || data.update.state || "状态未知"}\n${data.update.message || ""}\n${data.update.finished_at || data.update.started_at || ""}`.trim();
+  }
+}
+async function checkSystem(silent = false) {
+  if (!silent) { $("#latestVersion").textContent = "检查中…"; $("#updateMessage").textContent = "正在连接GitHub检查新版本。"; }
+  const data = await api("/api/system/status"); updateSystemView(data); return data;
+}
+async function openSystem() {
+  $("#systemModal").classList.remove("hidden");
+  try { await checkSystem(); } catch (error) { $("#updateMessage").textContent = error.message; }
+}
+function closeSystem() { $("#systemModal").classList.add("hidden"); }
+async function requestUpdate() {
+  if (!state.system?.remote?.update_available) return;
+  if (!confirm(`确认更新到 V${state.system.remote.latest_version}？更新期间页面会短暂断开。`)) return;
+  $("#runUpdate").disabled = true;
+  try {
+    const result = await api("/api/system/update", { method:"POST" });
+    toast(result.message); await checkSystem(true);
+  } catch (error) { toast(error.message); $("#runUpdate").disabled = false; }
+}
+$("#openSystem").onclick = openSystem;
+$("#closeSystem").onclick = closeSystem;
+$("#checkUpdate").onclick = () => checkSystem().catch(error => toast(error.message));
+$("#runUpdate").onclick = requestUpdate;
+$("#systemModal").onclick = e => { if (e.target === $("#systemModal")) closeSystem(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSystem(); });
 
 loadProjects().catch(e => { if (e.message !== "请先登录") toast(e.message); });

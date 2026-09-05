@@ -20,6 +20,10 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
+const APP_VERSION = "1.7.0";
+const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "147196421/h3-production-console";
+const UPDATE_REQUEST_PATH = path.join(DATA_DIR, "update-request.json");
+const UPDATE_STATUS_PATH = path.join(DATA_DIR, "update-status.json");
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "videos"), { recursive: true });
@@ -126,6 +130,32 @@ function mediaToolStatus() {
     run(FFPROBE_BIN, ["-version"]).then(() => true, () => false)
   ]).then(([ffmpeg, ffprobe]) => ({ ffmpeg, ffprobe, ready: ffmpeg && ffprobe }));
   return mediaToolStatusPromise;
+}
+function newerVersion(latest, current) {
+  const parts = value => String(value || "0").split(".").map(part => Number(part) || 0);
+  const a = parts(latest); const b = parts(current);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+async function githubVersion() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch(`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/package.json`, {
+      signal: controller.signal,
+      headers: { "user-agent": `h3-production-console/${APP_VERSION}`, "cache-control": "no-cache" }
+    });
+    if (!response.ok) throw new Error(`GitHub返回${response.status}`);
+    const pkg = await response.json();
+    return { latest_version: String(pkg.version || ""), update_available: newerVersion(pkg.version, APP_VERSION), checked_at: now() };
+  } catch (error) {
+    return { latest_version: null, update_available: false, checked_at: now(), error: error.name === "AbortError" ? "连接GitHub超时" : error.message };
+  } finally { clearTimeout(timer); }
+}
+async function readOptionalJson(file) {
+  try { return JSON.parse(await fs.readFile(file, "utf8")); } catch { return null; }
 }
 async function probeDuration(file) {
   const r = await run(FFPROBE_BIN, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file]);
@@ -249,7 +279,7 @@ async function serveMedia(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`); const pathname = url.pathname;
-    if (pathname === "/api/health") return json(res, 200, { ok: true, version: "1.6.0", media_tools: await mediaToolStatus() });
+    if (pathname === "/api/health") return json(res, 200, { ok: true, version: APP_VERSION, media_tools: await mediaToolStatus() });
     if (pathname === "/api/login" && req.method === "POST") {
       const { password } = await jsonBody(req, 16 * 1024);
       const a = Buffer.from(String(password || "")); const b = Buffer.from(ADMIN_PASSWORD);
@@ -259,6 +289,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/api/logout" && req.method === "POST") return json(res, 200, { ok: true }, { "set-cookie": "h3_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0" });
     if (pathname.startsWith("/api/") && !validSession(req)) return fail(res, 401, "请先登录");
+    if (pathname === "/api/system/status" && req.method === "GET") {
+      const [remote, media, update, pending] = await Promise.all([
+        githubVersion(), mediaToolStatus(), readOptionalJson(UPDATE_STATUS_PATH), readOptionalJson(UPDATE_REQUEST_PATH)
+      ]);
+      return json(res, 200, { current_version: APP_VERSION, repository: GITHUB_REPOSITORY, remote, media_tools: media, update, pending });
+    }
+    if (pathname === "/api/system/update" && req.method === "POST") {
+      const remote = await githubVersion();
+      if (remote.error) return fail(res, 503, `暂时无法检查GitHub：${remote.error}`);
+      if (!remote.update_available) return json(res, 200, { ok: true, queued: false, message: "当前已经是最新版" });
+      const existing = await readOptionalJson(UPDATE_REQUEST_PATH);
+      if (existing) return json(res, 202, { ok: true, queued: true, message: "更新请求已经提交，请等待处理" });
+      const request = { requested_at: now(), current_version: APP_VERSION, target_version: remote.latest_version, repository: GITHUB_REPOSITORY };
+      await fs.writeFile(UPDATE_REQUEST_PATH, `${JSON.stringify(request, null, 2)}\n`, { flag: "wx" });
+      return json(res, 202, { ok: true, queued: true, message: "更新请求已提交，系统将在一分钟内开始更新" });
+    }
     if (pathname === "/api/docs" && req.method === "GET") {
       const files = (await fs.readdir(DOCS_DIR)).filter(name => name.endsWith(".md")).sort((a, b) => a.localeCompare(b, "zh-CN"));
       const docs = await Promise.all(files.map(async name => {
