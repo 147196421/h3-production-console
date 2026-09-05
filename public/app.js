@@ -83,6 +83,48 @@ function toast(message) { const el = $("#toast"); el.textContent = message; el.c
 function showLogin() { $("#login").classList.remove("hidden"); }
 function hideLogin() { $("#login").classList.add("hidden"); }
 function esc(v) { return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function inlineMarkdown(value) {
+  return esc(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+function renderMarkdown(markdown) {
+  const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+  const html = []; let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    if (line.startsWith("```")) {
+      const language = line.slice(3).trim(); const code = []; i++;
+      while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
+      i++; html.push(`<pre class="md-code" data-language="${esc(language)}"><code>${esc(code.join("\n"))}</code></pre>`); continue;
+    }
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) { const level = Math.min(heading[1].length, 4); html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`); i++; continue; }
+    if (/^\|.*\|$/.test(line) && /^\|?\s*:?-+/.test(lines[i + 1] || "")) {
+      const rows = [];
+      const cells = value => value.replace(/^\||\|$/g, "").split("|").map(cell => inlineMarkdown(cell.trim()));
+      const head = cells(line); i += 2;
+      while (i < lines.length && /^\|.*\|$/.test(lines[i])) rows.push(cells(lines[i++]));
+      html.push(`<div class="md-table-wrap"><table><thead><tr>${head.map(cell => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`); continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^[-*]\s+/, ""));
+      html.push(`<ul>${items.map(item => `<li>${inlineMarkdown(item)}</li>`).join("")}</ul>`); continue;
+    }
+    if (/^\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) items.push(lines[i++].replace(/^\d+\.\s+/, ""));
+      html.push(`<ol>${items.map(item => `<li>${inlineMarkdown(item)}</li>`).join("")}</ol>`); continue;
+    }
+    const paragraph = [line]; i++;
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4})\s+|^```|^[-*]\s+|^\d+\.\s+|^\|.*\|$/.test(lines[i])) paragraph.push(lines[i++]);
+    html.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+  }
+  return html.join("");
+}
 
 async function loadProjects() {
   const { projects } = await api("/api/projects"); state.projects = projects;
@@ -123,13 +165,31 @@ function selectTask(id) {
 function renderEditor() {
   const t = state.current; const el = $("#taskEditor"); el.classList.remove("empty");
   el.innerHTML = `<div class="task-head"><div><span class="task-code">${esc(t.id)}</span><h2>${esc(t.title)}</h2><div class="chips"><span class="chip">${t.duration}秒</span><span class="chip">${esc(t.shot_type)}</span><span class="chip">${esc(t.status)}</span></div></div></div>
-    <div class="form-section"><label>本镜参考素材 <small class="label-tip">点图片查看大图</small></label>${renderReferenceCards(t)}<textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea></div>
-    <div class="platform-steps"><strong>操作步骤</strong><ol><li>下载上面的参考图到相册，再上传到视频生成平台</li><li>复制下面整段提示词到唯一输入框</li><li>从上往下找到每个“@文件名”</li><li>在原位置点“@引用参考图”，选同名图片并删除文字占位</li></ol></div>
-    <div class="form-section platform-section"><label>专业单框提示词 <button class="copy copy-main" data-copy="platformPrompt">复制整段</button></label><p class="field-help">按秒分镜、3D质量、首尾衔接已合并；@图片分散在真正需要它的位置，不要统一挪到开头。</p><textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildPlatformPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea></div>
-    <div class="form-section"><label>后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">这部分不要放入画面生成提示词；生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea></div>
-    <div class="form-section"><label>内部衔接记录</label><p class="field-help">不需要单独输入，内容已经自动并入上面的单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea></div>
-    <div class="form-section"><label>制作备注</label><textarea id="notes" class="short-field" placeholder="记录废片原因、重做要求……">${esc(t.notes)}</textarea></div>
+    <div class="editor-tabs" role="tablist" aria-label="镜头编辑区域">
+      <button class="editor-tab active" data-editor-tab="references" role="tab">参考素材</button>
+      <button class="editor-tab" data-editor-tab="prompt" role="tab">生成提示</button>
+      <button class="editor-tab" data-editor-tab="post" role="tab">后期设置</button>
+    </div>
+    <section class="editor-panel" data-editor-panel="references">
+      <div class="section-heading"><div><h3>本镜参考素材</h3><p>点击图片查看大图，按文件名选择平台参考图</p></div><span>${referenceCards(t).length}张</span></div>
+      ${renderReferenceCards(t)}
+      <label class="field-label" for="referenceHint">素材说明</label><textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea>
+    </section>
+    <section class="editor-panel" data-editor-panel="prompt" hidden>
+      <details class="platform-steps"><summary>操作步骤</summary><ol><li>下载本镜参考图并上传到视频生成平台</li><li>复制整段提示词到唯一输入框</li><li>在每个“@文件名”原位置选择同名参考图</li></ol></details>
+      <div class="section-heading prompt-heading"><div><h3>专业单框提示词</h3><p>已合并按秒分镜、3D质量和首尾衔接</p></div><button class="copy copy-main" data-copy="platformPrompt">复制整段</button></div>
+      <textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildPlatformPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea>
+    </section>
+    <section class="editor-panel" data-editor-panel="post" hidden>
+      <label class="field-label">后期配音文字 <button class="copy" data-copy="dialogue">复制配音</button></label><p class="field-help warning">生成视频后，在剪辑软件里配音和加字幕。</p><textarea id="dialogue" class="short-field">${esc(t.dialogue)}</textarea>
+      <label class="field-label spaced">内部衔接记录</label><p class="field-help">已经自动并入单框提示词。</p><textarea id="continuity" class="short-field">${esc(t.continuity)}</textarea>
+      <label class="field-label spaced">制作备注</label><textarea id="notes" class="short-field" placeholder="记录废片原因、重做要求……">${esc(t.notes)}</textarea>
+    </section>
     <div class="actions"><button id="saveTask" class="primary">保存修改</button><button id="markRetry" class="danger">标记需重做</button><button id="nextTask" class="secondary">下一镜 →</button></div>`;
+  document.querySelectorAll("[data-editor-tab]").forEach(button => button.onclick = () => {
+    document.querySelectorAll("[data-editor-tab]").forEach(tab => tab.classList.toggle("active", tab === button));
+    document.querySelectorAll("[data-editor-panel]").forEach(panel => panel.hidden = panel.dataset.editorPanel !== button.dataset.editorTab);
+  });
   document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => { await navigator.clipboard.writeText($("#"+b.dataset.copy).value); toast("已复制"); });
   $("#saveTask").onclick = () => saveTask(); $("#markRetry").onclick = () => saveTask("需重做"); $("#nextTask").onclick = nextTask;
 }
@@ -169,11 +229,17 @@ $("#videoInput").onchange = e => uploadVideo(e.target.files[0]);
 const drop = $("#dropZone"); drop.ondragover = e => { e.preventDefault(); drop.classList.add("drag"); }; drop.ondragleave = () => drop.classList.remove("drag"); drop.ondrop = e => { e.preventDefault(); drop.classList.remove("drag"); uploadVideo(e.dataTransfer.files[0]); };
 $("#importFile").onchange = async e => { const f=e.target.files[0]; if(!f)return; try { const data=JSON.parse(await f.text()); await api("/api/projects/import",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(data)}); await loadProjects(); toast("任务已导入"); } catch(err){toast(err.message)} e.target.value=""; };
 
+function setActiveArea(area) {
+  const buttons = { production: $("#showProduction"), docs: $("#openDocs"), system: $("#openSystem") };
+  Object.entries(buttons).forEach(([name, button]) => button.classList.toggle("active", name === area));
+}
 async function openDocs() {
+  setActiveArea("docs");
   $("#docsModal").classList.remove("hidden");
   try {
     const { docs } = await api("/api/docs");
     $("#docsList").innerHTML = docs.map((doc, index) => `<button class="doc-item${index === 0 ? " active" : ""}" data-doc="${esc(doc.name)}">${esc(doc.title)}</button>`).join("");
+    $("#docsSelect").innerHTML = docs.map(doc => `<option value="${esc(doc.name)}">${esc(doc.title)}</option>`).join("");
     document.querySelectorAll(".doc-item").forEach(button => button.onclick = () => loadDoc(button.dataset.doc, button));
     if (docs[0]) await loadDoc(docs[0].name, $(".doc-item"));
   } catch (error) { $("#docContent").textContent = error.message; }
@@ -181,13 +247,18 @@ async function openDocs() {
 async function loadDoc(name, button) {
   const doc = await api(`/api/docs/${encodeURIComponent(name)}`);
   document.querySelectorAll(".doc-item").forEach(item => item.classList.toggle("active", item === button));
+  $("#docsSelect").value = name;
   $("#docHeading").textContent = doc.title;
-  $("#docContent").textContent = doc.content;
+  state.docContent = doc.content;
+  $("#docContent").innerHTML = renderMarkdown(doc.content.replace(/^#\s+.*\n?/, ""));
+  $(".docs-reader").scrollTop = 0;
 }
-function closeDocs() { $("#docsModal").classList.add("hidden"); }
+function closeDocs() { $("#docsModal").classList.add("hidden"); setActiveArea("production"); }
+$("#showProduction").onclick = () => { closeDocs(); closeSystem(); window.scrollTo({ top: 0, behavior: "smooth" }); };
 $("#openDocs").onclick = openDocs;
 $("#closeDocs").onclick = closeDocs;
-$("#copyDoc").onclick = async () => { await navigator.clipboard.writeText($("#docContent").textContent); toast("文档已复制"); };
+$("#docsSelect").onchange = e => loadDoc(e.target.value, document.querySelector(`[data-doc="${CSS.escape(e.target.value)}"]`));
+$("#copyDoc").onclick = async () => { await navigator.clipboard.writeText(state.docContent || ""); toast("文档已复制"); };
 $("#docsModal").onclick = e => { if (e.target === $("#docsModal")) closeDocs(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDocs(); });
 
@@ -222,10 +293,11 @@ async function checkSystem(silent = false) {
   const data = await api("/api/system/status"); updateSystemView(data); return data;
 }
 async function openSystem() {
+  setActiveArea("system");
   $("#systemModal").classList.remove("hidden");
   try { await checkSystem(); } catch (error) { $("#updateMessage").textContent = error.message; }
 }
-function closeSystem() { $("#systemModal").classList.add("hidden"); }
+function closeSystem() { $("#systemModal").classList.add("hidden"); setActiveArea("production"); }
 async function requestUpdate() {
   if (!state.system?.remote?.update_available) return;
   if (!confirm(`确认更新到 V${state.system.remote.latest_version}？更新期间页面会短暂断开。`)) return;

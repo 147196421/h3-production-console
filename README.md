@@ -57,7 +57,7 @@ curl http://127.0.0.1:8926/api/health
 
 ### 启用后台一键更新
 
-首次部署V1.7后，在服务器项目目录执行一次：
+首次部署V1.8后，在服务器项目目录执行一次：
 
 ```bash
 sudo bash scripts/install-update-agent.sh "$PWD"
