@@ -3,10 +3,19 @@ const state = { projects: [], tasks: [], current: null, projectId: null, episode
 const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
 const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
 const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
+const TASK_REFERENCE_ASSETS = {
+  "EP01-C03": [{ name:"收包袱双人构图", file:"林家土屋收包袱双人首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @林家土屋收包袱双人首帧.jpg 锁定苏清禾前景、林国强背景和两人距离；" }],
+  "EP01-C04": [{ name:"小满躲母亲近景", file:"小满躲母亲儿童近景首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @小满躲母亲儿童近景首帧.jpg 锁定母女遮挡关系、儿童视线和近景机位；" }],
+  "EP01-C05": [{ name:"林家三人对峙构图", file:"林家三人对峙首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @林家三人对峙首帧.jpg 锁定三人站位、距离和对峙轴线；" }],
+  "EP01-C06": [{ name:"1998破旧收音机", file:"1998破旧收音机道具三视图.jpg", kind:"固定道具图", anchor:"【0-2秒】", instruction:"以 @1998破旧收音机道具三视图.jpg 锁定收音机外形、旋钮、天线和磨损材质；" }],
+  "EP01-C07": [{ name:"维修记忆蒙太奇", file:"维修记忆蒙太奇参考板.jpg", kind:"固定蒙太奇参考", anchor:"【0-2秒】", instruction:"以 @维修记忆蒙太奇参考板.jpg 统一电子管、电路板、焊接、纸币和修理铺的年代质感；" }],
+  "EP01-C09": [{ name:"一家三口看收音机", file:"林家三口收音机同框首帧.jpg", kind:"固定镜头首帧", anchor:"【0-2秒】", instruction:"以 @林家三口收音机同框首帧.jpg 锁定三人三角构图、视线和收音机位置；" }],
+  "EP01-C10": [{ name:"1998破旧收音机", file:"1998破旧收音机道具三视图.jpg", kind:"固定道具图", anchor:"【0-1秒】", instruction:"以 @1998破旧收音机道具三视图.jpg 锁定收音机外形、指示灯、扬声器和旋钮；" }]
+};
 
 function referenceCards(task) {
   const source = `${task.reference_hint || ""} ${task.prompt || ""}`;
-  const cards = REFERENCE_NAMES.filter(name => source.includes(name)).map(name => ({
+  const cards = REFERENCE_NAMES.filter(name => String(task.reference_hint || "").includes(name) || String(task.prompt || "").includes(`@${name}_三视图.jpg`)).map(name => ({
     name, file: `${name}_三视图.jpg`,
     url: `/references/${encodeURIComponent(`${name}_三视图.jpg`)}`,
     kind: "人物标准图"
@@ -14,6 +23,9 @@ function referenceCards(task) {
   if (usesFixedHouse(task, source)) cards.unshift({
     name: "林家土屋夜景首帧", file: "林家土屋夜景首帧.jpg",
     url: `/references/${encodeURIComponent("林家土屋夜景首帧.jpg")}`, kind: "固定场景母版"
+  });
+  for (const asset of TASK_REFERENCE_ASSETS[task.id] || []) cards.push({
+    ...asset, url: `/references/${encodeURIComponent(asset.file)}`
   });
   if (task.shot_type === "尾帧续拍") {
     const idx = state.tasks.findIndex(t => t.id === task.id);
@@ -23,9 +35,6 @@ function referenceCards(task) {
       url: previous.tail_frame_url, kind: "优先使用"
     } : { name: "上一镜尾帧", file: "请先完成上一镜", url: null, kind: "等待生成" });
   }
-  const extraHints = String(task.reference_hint || "").split(/[；;+]/).map(v => v.trim()).filter(Boolean)
-    .filter(hint => !REFERENCE_NAMES.some(name => hint.includes(name)) && !/上传.*尾帧|必要时|人物图|标准图|土屋/.test(hint));
-  for (const hint of extraHints) cards.push({ name: hint, file: `${hint.replace(/\s+/g, "_")}.jpg`, url: null, kind: "待补场景图" });
   if (!cards.length) cards.push({ name:"场景首帧", file:"需要按本镜说明准备", url:null, kind:"场景素材" });
   return cards;
 }
@@ -46,7 +55,8 @@ function to3DPrompt(prompt) {
   const cleaned = String(prompt || "")
     .replaceAll("2D写实动画", "高质量3D写实国漫动画")
     .replaceAll("二维写实动画", "高质量3D写实国漫动画")
-    .replaceAll("竖屏2D写实动画", "竖屏9:16，高质量3D写实国漫动画");
+    .replaceAll("竖屏2D写实动画", "竖屏9:16，高质量3D写实国漫动画")
+    .replaceAll("旧军绿色夹克", "褪色深蓝旧工装夹克");
   return cleaned.includes("3D") ? cleaned : `高质量3D写实国漫动画，电影级灯光，PBR材质，真实布料与皮肤质感，人物比例自然。${cleaned}`;
 }
 
@@ -55,6 +65,9 @@ function buildHaomjPrompt(task) {
   const source = `${task.reference_hint || ""} ${prompt}`;
   if (usesFixedHouse(task, source) && !prompt.includes("@林家土屋夜景首帧.jpg")) {
     prompt = prompt.replace("【画幅与风格】", "【画幅与风格】以 @林家土屋夜景首帧.jpg 锁定床、窗、木桌、收音机、日历、煤油灯的位置和夜间光线；");
+  }
+  for (const asset of TASK_REFERENCE_ASSETS[task.id] || []) {
+    if (!prompt.includes(`@${asset.file}`)) prompt = prompt.replace(asset.anchor, `${asset.anchor}${asset.instruction}`);
   }
   return `${prompt}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一质量】\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
 }
