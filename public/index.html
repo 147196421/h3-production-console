@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>H3 漫剧制作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="login" class="login-layer hidden">
+    <form id="loginForm" class="login-card">
+      <div class="brand-mark">H3</div>
+      <h1>漫剧制作台</h1>
+      <p>输入管理密码继续</p>
+      <input id="password" type="password" autocomplete="current-password" placeholder="管理密码" required>
+      <button class="primary" type="submit">登录</button>
+      <div id="loginError" class="error"></div>
+    </form>
+  </div>
+
+  <header>
+    <div>
+      <span class="eyebrow">H3 PRODUCTION</span>
+      <h1>漫剧制作台</h1>
+    </div>
+    <div class="header-actions">
+      <label class="file-button">导入任务JSON<input id="importFile" type="file" accept="application/json"></label>
+      <button id="logout" class="ghost">退出</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="project-bar">
+      <div>
+        <label for="projectSelect">项目</label>
+        <select id="projectSelect"></select>
+      </div>
+      <div>
+        <label for="episodeSelect">集数</label>
+        <select id="episodeSelect"></select>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-label"><span id="progressText">0 / 0</span><strong id="progressPct">0%</strong></div>
+        <div class="progress"><i id="progressBar"></i></div>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <aside class="task-list-panel">
+        <div class="panel-title"><h2>镜头任务</h2><span id="taskCount"></span></div>
+        <div id="taskList" class="task-list"></div>
+      </aside>
+
+      <section id="taskEditor" class="task-editor empty">
+        <div class="empty-state">选择一个镜头开始制作</div>
+      </section>
+
+      <aside class="output-panel">
+        <div class="panel-title"><h2>生成结果</h2><span id="uploadState">等待上传</span></div>
+        <label id="dropZone" class="drop-zone">
+          <input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska">
+          <span class="upload-icon">＋</span>
+          <strong>上传H3视频</strong>
+          <small>支持MP4 / MOV / WEBM / MKV</small>
+        </label>
+        <div id="uploadProgress" class="upload-progress hidden"><i></i><span>正在上传并挑选清晰画面…</span></div>
+        <div id="frames" class="frames hidden">
+          <figure><figcaption>推荐首帧 <span id="startTime"></span></figcaption><a id="startLink" target="_blank"><img id="startImage" alt="推荐首帧"></a></figure>
+          <figure><figcaption>推荐尾帧 <span id="tailTime"></span></figcaption><a id="tailLink" target="_blank"><img id="tailImage" alt="推荐尾帧"></a></figure>
+        </div>
+        <div class="tip"><strong>衔接建议</strong><p id="nextHint">完成当前镜头后，这里会提示下一镜该使用哪张参考图。</p></div>
+      </aside>
+    </div>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
