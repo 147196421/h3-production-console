@@ -36,6 +36,10 @@ test("上传只保留首尾帧，成功和失败都清除临时视频", async ()
     const base=`http://127.0.0.1:${port}`; await waitFor(`${base}/api/health`);
     const login=await fetch(`${base}/api/login`, { method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password:"test-password"}) });
     const cookie=login.headers.get("set-cookie").split(";",1)[0];
+    const ep1=await fetch(`${base}/api/tasks?project=return-1998&episode=1&model=grok`,{headers:{cookie}}).then(response=>response.json());
+    const ep2=await fetch(`${base}/api/tasks?project=return-1998&episode=2&model=grok`,{headers:{cookie}}).then(response=>response.json());
+    assert.equal(ep1.summary.total,10); assert.equal(ep2.summary.total,9);
+    assert.equal(ep1.tasks.length,10); assert.equal(ep2.tasks.length,9);
     const form=new FormData(); form.append("video",new Blob([await fs.readFile(sample)],{type:"video/mp4"}),"sample.mp4");
     const upload=await fetch(`${base}/api/tasks/EP01-C01/video?model=grok`,{method:"POST",headers:{cookie},body:form});
     assert.equal(upload.status,200); const result=await upload.json();

@@ -216,16 +216,16 @@ async function loadProjects() {
 }
 async function loadAllTasks() {
   if (!state.projectId) return;
-  const { tasks, summary } = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&model=${state.model}`);
+  const { tasks } = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&model=${state.model}`);
   const episodes = [...new Set(tasks.map(t => t.episode))];
   if (!episodes.includes(state.episode)) state.episode = episodes[0] || 1;
   $("#episodeSelect").innerHTML = episodes.map(e => `<option value="${e}">第${String(e).padStart(2,"0")}集</option>`).join("");
   $("#episodeSelect").value = state.episode;
-  updateProgress(summary); await loadTasks();
+  await loadTasks();
 }
 async function loadTasks(selectId) {
   const data = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&episode=${state.episode}&model=${state.model}`);
-  state.tasks = data.tasks; renderTaskList();
+  state.tasks = data.tasks; updateProgress(data.summary); renderTaskList();
   const target = state.tasks.find(t => t.id === selectId) || state.tasks.find(t => t.status !== "已完成") || state.tasks[0];
   if (target) selectTask(target.id); else $("#taskEditor").innerHTML = '<div class="empty-state">这一集还没有任务</div>';
 }

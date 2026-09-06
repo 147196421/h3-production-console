@@ -20,7 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.16.0";
+const APP_VERSION = "1.16.1";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "tmp", "uploads"), { recursive: true });
@@ -236,11 +236,16 @@ function taskRow(row, model = "h3") {
   const { video_path, start_frame_path, tail_frame_path, start_time, tail_time, status, ...task } = row;
   return { ...task, model: selected, status: output.status, video_url: pub(output.video_path), start_frame_url: pub(output.start_frame_path), tail_frame_url: pub(output.tail_frame_path), start_time: output.start_time, tail_time: output.tail_time };
 }
-function summary(projectId, model = "h3") {
-  const row = db.prepare(`SELECT COUNT(*) total,
-    SUM(COALESCE(o.status,'待生成')='已完成') completed,
-    SUM(COALESCE(o.status,'待生成')='需重做') retry
-    FROM tasks t LEFT JOIN task_outputs o ON o.task_id=t.id AND o.model=? WHERE t.project_id=?`).get(modelId(model), projectId);
+function summary(projectId, model = "h3", episode = 0) {
+  const row = episode
+    ? db.prepare(`SELECT COUNT(*) total,
+      SUM(COALESCE(o.status,'待生成')='已完成') completed,
+      SUM(COALESCE(o.status,'待生成')='需重做') retry
+      FROM tasks t LEFT JOIN task_outputs o ON o.task_id=t.id AND o.model=? WHERE t.project_id=? AND t.episode=?`).get(modelId(model), projectId, Number(episode))
+    : db.prepare(`SELECT COUNT(*) total,
+      SUM(COALESCE(o.status,'待生成')='已完成') completed,
+      SUM(COALESCE(o.status,'待生成')='需重做') retry
+      FROM tasks t LEFT JOIN task_outputs o ON o.task_id=t.id AND o.model=? WHERE t.project_id=?`).get(modelId(model), projectId);
   return { total: Number(row.total || 0), completed: Number(row.completed || 0), retry: Number(row.retry || 0) };
 }
 async function seedIfEmpty() {
@@ -389,7 +394,7 @@ const server = http.createServer(async (req, res) => {
       const project = safeId(url.searchParams.get("project")); const episode = Number(url.searchParams.get("episode") || 0);
       const selectedModel = modelId(url.searchParams.get("model"));
       let rows = episode ? db.prepare("SELECT * FROM tasks WHERE project_id=? AND episode=? ORDER BY clip").all(project, episode) : db.prepare("SELECT * FROM tasks WHERE project_id=? ORDER BY episode,clip").all(project);
-      return json(res, 200, { model: selectedModel, tasks: rows.map(row => taskRow(row, selectedModel)), summary: summary(project, selectedModel) });
+      return json(res, 200, { model: selectedModel, tasks: rows.map(row => taskRow(row, selectedModel)), summary: summary(project, selectedModel, episode) });
     }
     const taskMatch = pathname.match(/^\/api\/tasks\/([a-zA-Z0-9_-]+)$/);
     if (taskMatch && req.method === "GET") {
