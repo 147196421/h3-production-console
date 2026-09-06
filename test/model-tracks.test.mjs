@@ -25,7 +25,7 @@ test("prompts and inherited tail filenames change with model", () => {
   assert.match(app, /h3: \{ name:"H3", tag:"H3"/);
   assert.match(app, /grok: \{ name:"Grok", tag:"GROK"/);
   assert.match(app, /_\$\{modelProfile\(\)\.tag\}_尾帧\.jpg/);
-  assert.match(app, /【\$\{modelProfile\(\)\.name\}执行重点】/);
+  assert.match(app, /【动作衔接】/);
 });
 
 test("episode one has a distinct shot strategy for every H3 and Grok clip", () => {
