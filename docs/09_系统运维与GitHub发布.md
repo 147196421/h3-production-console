@@ -3,7 +3,7 @@
 ## 1. 部署边界
 
 - 网页与API运行在`h3-console`容器，默认端口8926。
-- 项目目录的`data/`挂载为容器`/data`，保存数据库、视频、首尾帧和运行参考图。
+- 项目目录的`data/`挂载为容器`/data`，长期保存数据库、首尾帧和运行参考图；上传视频只作临时处理。
 - GitHub保存代码、文档、任务种子和固定参考图，不保存`data/`运行数据，也不保存密码、代理或API密钥。
 - 后台“运行状态”只显示当前版本和FFmpeg状态，不访问GitHub、不检测版本、不执行更新。
 
@@ -31,7 +31,7 @@ curl http://127.0.0.1:8926/api/health
 sudo bash scripts/remove-online-update.sh
 ```
 
-脚本只删除旧cron任务、宿主机更新代理、代理凭据和旧更新状态文件，不删除SQLite数据库、视频、首尾帧或固定参考图。
+脚本只删除旧cron任务、宿主机更新代理、代理凭据和旧更新状态文件，不删除SQLite数据库、旧版遗留视频、首尾帧或固定参考图。
 
 ## 4. 发布验收
 
@@ -40,6 +40,7 @@ sudo bash scripts/remove-online-update.sh
 3. “运行状态”中只出现当前版本和FFmpeg状态。
 4. “项目文档”能读取全部Markdown文件。
 5. 随机打开一个镜头，参考图、提示词和已保存状态仍存在。
+6. 上传测试视频后能看到首尾帧，`data/tmp/uploads/`中不残留原视频。
 6. 上传测试视频能产生首帧和尾帧。
 
 ## 5. 故障排查
@@ -56,4 +57,3 @@ FFmpeg缺失时重建镜像：
 docker compose build --no-cache h3-console
 docker compose up -d --force-recreate h3-console
 ```
-

@@ -20,10 +20,10 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.14.0";
+const APP_VERSION = "1.15.0";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
-await fs.mkdir(path.join(DATA_DIR, "videos"), { recursive: true });
+await fs.mkdir(path.join(DATA_DIR, "tmp", "uploads"), { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "frames"), { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "references"), { recursive: true });
 
@@ -396,11 +396,18 @@ const server = http.createServer(async (req, res) => {
       if (file.size > MAX_UPLOAD_MB * 1024 * 1024) return fail(res, 413, `视频不能超过${MAX_UPLOAD_MB}MB`);
       const ext = path.extname(file.name || "").toLowerCase(); if (![".mp4",".mov",".webm",".mkv"].includes(ext)) return fail(res, 400, "仅支持MP4、MOV、WEBM或MKV");
       const ep = `EP${String(task.episode).padStart(2,"0")}`; const base = `${ep}_C${String(task.clip).padStart(2,"0")}_${selectedModel.toUpperCase()}`;
-      const videoDir = path.join(DATA_DIR, "videos", selectedModel, ep); const frameDir = path.join(DATA_DIR, "frames", selectedModel, ep); await fs.mkdir(videoDir,{recursive:true}); await fs.mkdir(frameDir,{recursive:true});
-      const videoPath = path.join(videoDir, `${base}${ext}`); await fs.writeFile(videoPath, Buffer.from(await file.arrayBuffer()));
-      const result = await extractBestFrames(videoPath, frameDir, base);
-      setOutput(task.id, selectedModel, { video_path:videoPath, start_frame_path:result.startPath, tail_frame_path:result.tailPath, start_time:result.startTime, tail_time:result.tailTime, status:"已完成" });
-      return json(res, 200, { ok:true, model:selectedModel, duration:result.duration, task:taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(task.id), selectedModel) });
+      const uploadDir = path.join(DATA_DIR, "tmp", "uploads"); const frameDir = path.join(DATA_DIR, "frames", selectedModel, ep); await fs.mkdir(uploadDir,{recursive:true}); await fs.mkdir(frameDir,{recursive:true});
+      const videoPath = path.join(uploadDir, `${base}_${crypto.randomUUID()}${ext}`);
+      const previousVideo = outputFor(task.id, selectedModel)?.video_path;
+      await fs.writeFile(videoPath, Buffer.from(await file.arrayBuffer()));
+      try {
+        const result = await extractBestFrames(videoPath, frameDir, base);
+        setOutput(task.id, selectedModel, { video_path:null, start_frame_path:result.startPath, tail_frame_path:result.tailPath, start_time:result.startTime, tail_time:result.tailTime, status:"已完成" });
+        if (previousVideo && path.resolve(previousVideo).startsWith(path.join(DATA_DIR, "videos") + path.sep)) await fs.rm(previousVideo, { force:true }).catch(() => {});
+        return json(res, 200, { ok:true, model:selectedModel, duration:result.duration, original_video_retained:false, task:taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(task.id), selectedModel) });
+      } finally {
+        await fs.rm(videoPath, { force:true }).catch(() => {});
+      }
     }
     if (pathname.startsWith("/media/")) return serveMedia(req, res, pathname);
     if (pathname.startsWith("/api/")) return fail(res, 404, "接口不存在");

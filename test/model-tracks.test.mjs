@@ -9,8 +9,11 @@ const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "
 test("H3 and Grok outputs are persisted by task and model", () => {
   assert.match(server, /CREATE TABLE IF NOT EXISTS task_outputs/);
   assert.match(server, /PRIMARY KEY\(task_id, model\)/);
-  assert.match(server, /path\.join\(DATA_DIR, "videos", selectedModel, ep\)/);
+  assert.match(server, /path\.join\(DATA_DIR, "tmp", "uploads"\)/);
   assert.match(server, /path\.join\(DATA_DIR, "frames", selectedModel, ep\)/);
+  assert.match(server, /original_video_retained:false/);
+  assert.match(server, /setOutput\(task\.id, selectedModel, \{ video_path:null/);
+  assert.match(server, /finally \{[\s\S]*fs\.rm\(videoPath, \{ force:true \}/);
 });
 
 test("UI exposes model selection and sends model to task and upload APIs", () => {

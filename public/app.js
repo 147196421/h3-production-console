@@ -269,7 +269,7 @@ async function uploadVideo(file) {
   $("#uploadProgress").classList.remove("hidden"); $("#dropZone").classList.add("hidden");
   try {
     const { task } = await api(`/api/tasks/${state.current.id}/video?model=${state.model}`, { method:"POST", body:form });
-    const index = state.tasks.findIndex(t => t.id === task.id); state.tasks[index] = task; state.current = task; renderTaskList(); renderOutput(); await loadProjects(); selectTask(task.id); toast(`${modelProfile().name}视频已保存，首尾帧已独立提取`);
+    const index = state.tasks.findIndex(t => t.id === task.id); state.tasks[index] = task; state.current = task; renderTaskList(); renderOutput(); await loadProjects(); selectTask(task.id); toast(`${modelProfile().name}首尾帧已保存，原视频已删除`);
   } catch(e) { toast(e.message); }
   finally { setBusy(false); $("#uploadProgress").classList.add("hidden"); $("#dropZone").classList.remove("hidden"); $("#videoInput").value = ""; }
 }

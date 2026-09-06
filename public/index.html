@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111827">
   <title>漫剧制作台</title>
-  <link rel="stylesheet" href="/styles.css?v=1.14.0">
+  <link rel="stylesheet" href="/styles.css?v=1.15.0">
 </head>
 <body>
   <div id="login" class="login-layer hidden">
@@ -21,7 +21,7 @@
 
   <header>
     <div>
-      <span class="eyebrow">VIDEO PRODUCTION · V1.14.0</span>
+      <span class="eyebrow">VIDEO PRODUCTION · V1.15.0</span>
       <h1>漫剧制作台</h1>
     </div>
     <nav class="main-nav" aria-label="后台区域">
@@ -71,7 +71,7 @@
           <input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska">
           <span class="upload-icon">＋</span>
           <strong id="uploadLabel">上传H3视频</strong>
-          <small>支持MP4 / MOV / WEBM / MKV</small>
+          <small>处理后仅保留首帧和尾帧</small>
         </label>
         <div id="uploadProgress" class="upload-progress hidden"><i></i><span>正在上传并挑选清晰画面…</span></div>
         <div id="frames" class="frames hidden">
@@ -102,13 +102,13 @@
         <button id="closeSystem" class="ghost" aria-label="关闭运行状态">关闭</button>
       </div>
       <div class="system-body">
-        <div class="system-card"><span>当前运行版本</span><strong id="currentVersion">V1.14.0</strong></div>
+        <div class="system-card"><span>当前运行版本</span><strong id="currentVersion">V1.15.0</strong></div>
         <div class="system-card"><span>视频处理组件</span><strong id="mediaStatus">检查中…</strong></div>
         <p class="system-note">这里仅显示当前服务的运行情况。项目设定、剧情大纲和AI交接资料请从“项目文档”进入。</p>
       </div>
     </section>
   </div>
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=1.14.0"></script>
+  <script type="module" src="/app.js?v=1.15.0"></script>
 </body>
 </html>
