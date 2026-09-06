@@ -7,7 +7,6 @@ import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { cleanNetworkError, maskProxyUrl, normalizeProxyUrl, publicNetworkSettings, readNetworkSettings, writeNetworkSettings } from "./network-settings.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT, "data"));
@@ -21,14 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.10.1";
-const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "147196421/h3-production-console";
-const UPDATE_REQUEST_PATH = path.join(DATA_DIR, "update-request.json");
-const UPDATE_STATUS_PATH = path.join(DATA_DIR, "update-status.json");
-const NETWORK_SETTINGS_PATH = path.join(DATA_DIR, "network-settings.json");
-const GIT_PROXY_CONFIG_PATH = path.join(DATA_DIR, "git-proxy.config");
-const networkSettings = () => readNetworkSettings(NETWORK_SETTINGS_PATH);
-const saveNetworkSettings = settings => writeNetworkSettings(settings, NETWORK_SETTINGS_PATH, GIT_PROXY_CONFIG_PATH);
+const APP_VERSION = "1.11.0";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "videos"), { recursive: true });
@@ -137,46 +129,6 @@ function mediaToolStatus() {
     run(FFPROBE_BIN, ["-version"]).then(() => true, () => false)
   ]).then(([ffmpeg, ffprobe]) => ({ ffmpeg, ffprobe, ready: ffmpeg && ffprobe }));
   return mediaToolStatusPromise;
-}
-function newerVersion(latest, current) {
-  const parts = value => String(value || "0").split(".").map(part => Number(part) || 0);
-  const a = parts(latest); const b = parts(current);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
-  }
-  return false;
-}
-async function fetchGithubPackage(proxyUrl = "") {
-  const target = `https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/package.json`;
-  if (proxyUrl) {
-    try {
-      const result = await run("curl", ["--location", "--fail", "--silent", "--show-error", "--max-time", "10", "--proxy", proxyUrl, target]);
-      return JSON.parse(result.stdout.toString("utf8"));
-    } catch (error) { throw new Error(cleanNetworkError(error, proxyUrl)); }
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
-  try {
-    const response = await fetch(target, {
-      signal: controller.signal,
-      headers: { "user-agent": `h3-production-console/${APP_VERSION}`, "cache-control": "no-cache" }
-    });
-    if (!response.ok) throw new Error(`GitHub返回${response.status}`);
-    return await response.json();
-  } finally { clearTimeout(timer); }
-}
-async function githubVersion(proxyOverride) {
-  const settings = await networkSettings();
-  const proxyUrl = proxyOverride === undefined ? (settings.enabled ? settings.proxy_url : "") : proxyOverride;
-  try {
-    const pkg = await fetchGithubPackage(proxyUrl);
-    return { latest_version:String(pkg.version || ""), update_available:newerVersion(pkg.version, APP_VERSION), checked_at:now(), via_proxy:Boolean(proxyUrl) };
-  } catch (error) {
-    return { latest_version:null, update_available:false, checked_at:now(), via_proxy:Boolean(proxyUrl), error:error.name === "AbortError" ? "连接GitHub超时" : cleanNetworkError(error, proxyUrl) };
-  }
-}
-async function readOptionalJson(file) {
-  try { return JSON.parse(await fs.readFile(file, "utf8")); } catch { return null; }
 }
 async function probeDuration(file) {
   const r = await run(FFPROBE_BIN, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file]);
@@ -336,45 +288,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/api/logout" && req.method === "POST") return json(res, 200, { ok: true }, { "set-cookie": "h3_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0" });
     if (pathname.startsWith("/api/") && !validSession(req)) return fail(res, 401, "请先登录");
-    if (pathname === "/api/system/network" && req.method === "POST") {
-      const body = await jsonBody(req, 8 * 1024);
-      const current = await networkSettings();
-      const proxyUrl = Object.hasOwn(body, "proxy_url") && String(body.proxy_url || "").trim() ? normalizeProxyUrl(body.proxy_url) : current.proxy_url;
-      const enabled = Object.hasOwn(body, "enabled") ? Boolean(body.enabled) : current.enabled;
-      if (enabled && !proxyUrl) return fail(res, 400, "请先填写代理地址");
-      const saved = await saveNetworkSettings({ enabled, proxy_url:proxyUrl });
-      return json(res, 200, { ok:true, network:publicNetworkSettings(saved), message:enabled ? "代理已保存并启用" : "代理已保存但未启用" });
-    }
-    if (pathname === "/api/system/network" && req.method === "DELETE") {
-      const saved = await saveNetworkSettings({ enabled:false, proxy_url:"" });
-      return json(res, 200, { ok:true, network:publicNetworkSettings(saved), message:"代理设置已清除" });
-    }
-    if (pathname === "/api/system/network/test" && req.method === "POST") {
-      const body = await jsonBody(req, 8 * 1024);
-      const current = await networkSettings();
-      const proxyUrl = String(body.proxy_url || "").trim() ? normalizeProxyUrl(body.proxy_url) : current.proxy_url;
-      if (!proxyUrl) return fail(res, 400, "请填写代理地址或先保存代理");
-      const started = Date.now();
-      try {
-        const pkg = await fetchGithubPackage(proxyUrl);
-        return json(res, 200, { ok:true, latest_version:String(pkg.version || ""), latency_ms:Date.now() - started, proxy:maskProxyUrl(proxyUrl) });
-      } catch (error) { return fail(res, 503, `代理连接失败：${cleanNetworkError(error, proxyUrl)}`); }
-    }
     if (pathname === "/api/system/status" && req.method === "GET") {
-      const [remote, media, update, pending, network] = await Promise.all([
-        githubVersion(), mediaToolStatus(), readOptionalJson(UPDATE_STATUS_PATH), readOptionalJson(UPDATE_REQUEST_PATH), networkSettings()
-      ]);
-      return json(res, 200, { current_version: APP_VERSION, repository: GITHUB_REPOSITORY, remote, media_tools: media, update, pending, network:publicNetworkSettings(network) });
-    }
-    if (pathname === "/api/system/update" && req.method === "POST") {
-      const remote = await githubVersion();
-      if (remote.error) return fail(res, 503, `暂时无法检查GitHub：${remote.error}`);
-      if (!remote.update_available) return json(res, 200, { ok: true, queued: false, message: "当前已经是最新版" });
-      const existing = await readOptionalJson(UPDATE_REQUEST_PATH);
-      if (existing) return json(res, 202, { ok: true, queued: true, message: "更新请求已经提交，请等待处理" });
-      const request = { requested_at: now(), current_version: APP_VERSION, target_version: remote.latest_version, repository: GITHUB_REPOSITORY };
-      await fs.writeFile(UPDATE_REQUEST_PATH, `${JSON.stringify(request, null, 2)}\n`, { flag: "wx" });
-      return json(res, 202, { ok: true, queued: true, message: "更新请求已提交，系统将在一分钟内开始更新" });
+      return json(res, 200, { current_version: APP_VERSION, media_tools: await mediaToolStatus() });
     }
     if (pathname === "/api/docs" && req.method === "GET") {
       const files = (await fs.readdir(DOCS_DIR)).filter(name => name.endsWith(".md")).sort((a, b) => a.localeCompare(b, "zh-CN"));
