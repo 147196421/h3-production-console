@@ -1,6 +1,6 @@
 {
   "name": "h3-production-console",
-  "version": "1.16.2",
+  "version": "1.16.3",
   "private": true,
   "type": "module",
   "description": "多模型短剧镜头任务、视频上传和智能首尾帧管理工具",
