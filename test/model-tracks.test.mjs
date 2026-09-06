@@ -27,3 +27,15 @@ test("prompts and inherited tail filenames change with model", () => {
   assert.match(app, /_\$\{modelProfile\(\)\.tag\}_尾帧\.jpg/);
   assert.match(app, /【\$\{modelProfile\(\)\.name\}执行重点】/);
 });
+
+test("episode one has a distinct shot strategy for every H3 and Grok clip", () => {
+  for (const model of ["h3", "grok"]) {
+    const start = app.indexOf(`  ${model}: {`, app.indexOf("MODEL_SHOT_STRATEGIES"));
+    const end = model === "h3" ? app.indexOf("  grok: {", start) : app.indexOf("  }\n};", start);
+    const block = app.slice(start, end);
+    for (let clip = 1; clip <= 10; clip++) {
+      assert.match(block, new RegExp(`EP01-C${String(clip).padStart(2, "0")}`));
+    }
+  }
+  assert.match(app, /【本镜专用运镜】\$\{shotStrategy\}/);
+});

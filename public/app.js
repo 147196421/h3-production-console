@@ -2,10 +2,36 @@ const $ = s => document.querySelector(s);
 const savedModel = localStorage.getItem("videoModel");
 const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1, model: savedModel === "grok" ? "grok" : "h3" };
 const MODEL_PROFILES = {
-  h3: { name:"H3", tag:"H3", execution:"严格按上述秒数顺序执行，每个时间段只完成规定动作；镜头运动平稳克制，人物动作连续，不提前进入下一段，不在段落交界重置姿势、机位或光线。", quality:"优先保持首尾帧、人物身份与场景空间稳定；面部表演细腻，肢体运动符合惯性，避免快速大幅度转身和复杂群体运动。" },
-  grok: { name:"Grok", tag:"GROK", execution:"把上述时间轴作为一条连续电影镜头执行；动作之间保留自然惯性和反应停顿，不跳过入场过程，不让角色凭空出现，不在镜头中途重置人物姿势、机位或空间关系。", quality:"充分表现电影感运镜、真实微表情、布料与发丝的次级运动，同时严格服从参考图身份和0秒起始状态；运动可以自然但不得改变人物、服装、年代与场景结构。" }
+  h3: { name:"H3", tag:"H3", mode:"稳定分段", execution:"严格按上述秒数顺序执行，每个时间段只完成规定动作；镜头运动平稳克制，人物动作连续，不提前进入下一段，不在段落交界重置姿势、机位或光线。", quality:"优先保持首尾帧、人物身份与场景空间稳定；面部表演细腻，肢体运动符合惯性，避免快速大幅度转身和复杂群体运动。" },
+  grok: { name:"Grok", tag:"GROK", mode:"电影运动", execution:"把上述时间轴作为一条连续电影镜头执行；动作之间保留自然惯性和反应停顿，不跳过入场过程，不让角色凭空出现，不在镜头中途重置人物姿势、机位或空间关系。", quality:"充分表现电影感运镜、真实微表情、布料与发丝的次级运动，同时严格服从参考图身份和0秒起始状态；运动可以自然但不得改变人物、服装、年代与场景结构。" }
 };
 const modelProfile = () => MODEL_PROFILES[state.model];
+const MODEL_SHOT_STRATEGIES = {
+  h3: {
+    "EP01-C01":"固定35mm床侧中景起步，只做一次快速推近和一次受控起身；以清楚读到惊醒表情、半坐姿势和右向视线为优先，不增加摇晃或多余机位变化。",
+    "EP01-C02":"承接尾帧后采用稳定横移与单次焦点转移；日历特写、人物反应、下床走到木桌按顺序完成，镜头每段只承担一个信息点。",
+    "EP01-C03":"从C02尾帧原机位续拍，以人物视线带动一次平稳右摇；门打开后轻微后拉容纳妻女入场，三人全部站稳前不切机位。",
+    "EP01-C04":"固定85mm儿童近景，机位保持在小满眼睛高度；只允许极慢推近，母亲衣角作为前景遮挡，父亲保持背景虚化且不得突然靠近。",
+    "EP01-C05":"固定50mm三人中景维持对峙轴线；林国强说话、妻子反应、右手移向收音机依次发生，手在结尾停于旋钮上方。",
+    "EP01-C06":"以收音机和右手为主体的稳定近景，单次缓慢推近；手指接触旋钮后才出现微弱亮斑，禁止提前发光或改变道具结构。",
+    "EP01-C07":"使用四个清楚、短促的记忆插入画面，切点跟随焊接火花与指示灯亮度；最后必须匹配切回原收音机、原手势和原光线。",
+    "EP01-C08":"声音桥后硬切床边稳定中景；妻子、小满、包袱位置全程锁定，只用轻微推近表现最后机会的重量。",
+    "EP01-C09":"固定35mm三人同框，按妻子、小满、林国强的顺序完成视线转移；镜头不绕人物，结尾三条视线准确汇聚到木桌收音机。",
+    "EP01-C10":"沿上一镜视线硬切收音机50mm特写；镜头只做极慢推近，指示灯亮起后保持构图，为新闻声和下一集抱起动作留下清楚尾帧。"
+  },
+  grok: {
+    "EP01-C01":"35mm床侧低机位从黑暗中迅速显影，随巨响做短促冲击式推近，随后用轻微呼吸感手持贴住林国强起身；结尾自然稳定在半坐右望，不制造第二次震动。",
+    "EP01-C02":"从真实尾帧延续一条连续的动机运镜：沿眼神横移并拉焦到日历，再以小幅弧线回到脸部，最后后退半步容纳他下床走向木桌；脚步声引导镜头停向右门。",
+    "EP01-C03":"保持C02尾帧运动惯性，镜头随林国强视线右摇到木门；门开启时平滑后移扩大空间，妻女从门外完整跨过门槛，随后用缓慢侧移建立三人纵深，不省略任何入场动作。",
+    "EP01-C04":"85mm儿童眼平近景，利用母亲衣角作前景轻微遮挡；镜头随小满后缩做极轻推近和焦点呼吸，让恐惧从眼神传到抓紧衣角的手，背景父亲始终停在原位。",
+    "EP01-C05":"以35mm三人纵深构图开始，做克制的半弧形侧移连接林国强与妻女反应；对白停顿后镜头顺着他的视线滑向收音机，右手进入画面并悬停，不能提前触碰。",
+    "EP01-C06":"从悬停右手进行匹配切，微距镜头跟随手指落向旋钮；接触瞬间用极轻环绕和景深变化表现异常能量，亮斑必须从暗到亮渐生，人物和房间反射同步但不过曝。",
+    "EP01-C07":"以指示灯光晕作视觉转场，使用有方向一致性的快速记忆蒙太奇：电烙铁推进、焊点火花、电路板掠过、纸币落桌；每次运动都向同一方向延续，最终借同形亮点无缝回到原收音机与原手势。",
+    "EP01-C08":"妻子声音先进入，再从收音机方向平滑摇回床边；镜头做缓慢靠近与轻微横移，让包袱、妻子坚定表情和小满依附关系形成前中后景，三人实际站位不改变。",
+    "EP01-C09":"35mm三人同框做非常缓慢的弧形推进，依次捕捉妻子、小满、林国强被声音吸引的微反应；运镜最终落到三人共同视线轴上，为收音机特写建立自然视觉动机。",
+    "EP01-C10":"顺着三人视线做干净匹配切，以微距缓推进入收音机指示灯和扬声器纹理；新闻声出现时加入极轻焦点呼吸与灯光脉动，结尾稳住道具位置，方便下一集从手伸入并抱起继续。"
+  }
+};
 const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
 const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
 const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
@@ -76,7 +102,8 @@ function buildPlatformPrompt(task) {
   for (const asset of TASK_REFERENCE_ASSETS[task.id] || []) {
     if (!prompt.includes(`@${asset.file}`)) prompt = prompt.replace(asset.anchor, `${asset.anchor}${asset.instruction}`);
   }
-  return `${prompt}\n\n【${modelProfile().name}执行重点】\n${modelProfile().execution}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【${modelProfile().name}质量控制】\n${modelProfile().quality}\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+  const shotStrategy = MODEL_SHOT_STRATEGIES[state.model]?.[task.id] || modelProfile().execution;
+  return `【当前模型】${modelProfile().name}｜${modelProfile().mode}\n【本镜专用运镜】${shotStrategy}\n\n${prompt}\n\n【${modelProfile().name}执行重点】\n${modelProfile().execution}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【${modelProfile().name}质量控制】\n${modelProfile().quality}\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
 }
 
 function applyModelUi() {
@@ -190,7 +217,7 @@ function renderEditor() {
     </section>
     <section class="editor-panel" data-editor-panel="prompt" hidden>
       <details class="platform-steps"><summary>${modelProfile().name}操作步骤</summary><ol><li>下载本镜参考图并上传到视频生成平台</li><li>复制整段${modelProfile().name}提示词到唯一输入框</li><li>在每个“@文件名”原位置选择同名参考图</li></ol></details>
-      <div class="section-heading prompt-heading"><div><h3>${modelProfile().name}专业单框提示词</h3><p>已按当前模型合并按秒分镜、3D质量和同模型首尾衔接</p></div><button class="copy copy-main" data-copy="platformPrompt">复制整段</button></div>
+      <div class="section-heading prompt-heading"><div><h3>${modelProfile().name}专业单框提示词</h3><p>${modelProfile().mode} · 第一集本镜专用运镜 · 同模型首尾衔接</p></div><button class="copy copy-main" data-copy="platformPrompt">复制整段</button></div>
       <textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildPlatformPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea>
     </section>
     <section class="editor-panel" data-editor-panel="post" hidden>
