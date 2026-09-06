@@ -1,5 +1,11 @@
 const $ = s => document.querySelector(s);
-const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1 };
+const savedModel = localStorage.getItem("videoModel");
+const state = { projects: [], tasks: [], current: null, projectId: null, episode: 1, model: savedModel === "grok" ? "grok" : "h3" };
+const MODEL_PROFILES = {
+  h3: { name:"H3", tag:"H3", execution:"严格按上述秒数顺序执行，每个时间段只完成规定动作；镜头运动平稳克制，人物动作连续，不提前进入下一段，不在段落交界重置姿势、机位或光线。", quality:"优先保持首尾帧、人物身份与场景空间稳定；面部表演细腻，肢体运动符合惯性，避免快速大幅度转身和复杂群体运动。" },
+  grok: { name:"Grok", tag:"GROK", execution:"把上述时间轴作为一条连续电影镜头执行；动作之间保留自然惯性和反应停顿，不跳过入场过程，不让角色凭空出现，不在镜头中途重置人物姿势、机位或空间关系。", quality:"充分表现电影感运镜、真实微表情、布料与发丝的次级运动，同时严格服从参考图身份和0秒起始状态；运动可以自然但不得改变人物、服装、年代与场景结构。" }
+};
+const modelProfile = () => MODEL_PROFILES[state.model];
 const REFERENCE_NAMES = ["林国强","苏清禾","林小满","周永发","陈大海","郑文博","何秀英","高峰"];
 const FIXED_HOUSE_TASKS = new Set(["EP01-C01","EP01-C03","EP01-C04","EP01-C05","EP01-C06","EP01-C08","EP01-C09","EP01-C10"]);
 const usesFixedHouse = (task, source) => FIXED_HOUSE_TASKS.has(task.id) || /林家土屋|破旧土屋|土屋/.test(source);
@@ -31,9 +37,9 @@ function referenceCards(task) {
     const idx = state.tasks.findIndex(t => t.id === task.id);
     const previous = idx > 0 ? state.tasks[idx - 1] : null;
     cards.unshift(previous?.tail_frame_url ? {
-      name: `${previous.id} 尾帧`, file: `${previous.id.replace("-", "_")}_尾帧.jpg`,
-      url: previous.tail_frame_url, kind: "优先使用"
-    } : { name: "上一镜尾帧", file: "请先完成上一镜", url: null, kind: "等待生成" });
+      name: `${previous.id} ${modelProfile().name}尾帧`, file: `${previous.id.replace("-", "_")}_${modelProfile().tag}_尾帧.jpg`,
+      url: previous.tail_frame_url, kind: `${modelProfile().name}分轨优先`
+    } : { name: `上一镜${modelProfile().name}尾帧`, file: `请先完成上一镜的${modelProfile().name}视频`, url: null, kind: `${modelProfile().name}分轨等待生成` });
   }
   if (!cards.length) cards.push({ name:"场景首帧", file:"需要按本镜说明准备", url:null, kind:"场景素材" });
   return cards;
@@ -62,6 +68,7 @@ function to3DPrompt(prompt) {
 
 function buildPlatformPrompt(task) {
   let prompt = to3DPrompt(task.prompt);
+  prompt = prompt.replace(/@(EP\d+_C\d+)_尾帧\.jpg/g, `@$1_${modelProfile().tag}_尾帧.jpg`);
   const source = `${task.reference_hint || ""} ${prompt}`;
   if (usesFixedHouse(task, source) && !prompt.includes("@林家土屋夜景首帧.jpg")) {
     prompt = prompt.replace("【画幅与风格】", "【画幅与风格】以 @林家土屋夜景首帧.jpg 锁定床、窗、木桌、收音机、日历、煤油灯的位置和夜间光线；");
@@ -69,7 +76,14 @@ function buildPlatformPrompt(task) {
   for (const asset of TASK_REFERENCE_ASSETS[task.id] || []) {
     if (!prompt.includes(`@${asset.file}`)) prompt = prompt.replace(asset.anchor, `${asset.anchor}${asset.instruction}`);
   }
-  return `${prompt}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【统一质量】\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+  return `${prompt}\n\n【${modelProfile().name}执行重点】\n${modelProfile().execution}\n\n【结尾状态】\n${task.continuity || "保持人物脸型、服装、场景、光线和镜头方向连续。"}\n\n【${modelProfile().name}质量控制】\n${modelProfile().quality}\n高质量3D写实国漫动画，PBR材质，电影级体积光，真实皮肤与布料细节，动作符合物理惯性，镜头稳定，景深自然；人物身份、五官、年龄、发型、服装和身材严格一致；禁止平面插画感、变脸、穿模、多余肢体、手指畸形、现代物件、字幕、文字、Logo和水印。`;
+}
+
+function applyModelUi() {
+  document.body.dataset.model = state.model;
+  $("#modelSelect").value = state.model;
+  $("#modelBadge").textContent = modelProfile().name;
+  $("#uploadLabel").textContent = `上传${modelProfile().name}视频`;
 }
 
 async function api(url, options = {}) {
@@ -127,7 +141,7 @@ function renderMarkdown(markdown) {
 }
 
 async function loadProjects() {
-  const { projects } = await api("/api/projects"); state.projects = projects;
+  const { projects } = await api(`/api/projects?model=${state.model}`); state.projects = projects;
   if (!state.projectId || !projects.some(p => p.id === state.projectId)) state.projectId = projects[0]?.id;
   $("#projectSelect").innerHTML = projects.map(p => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("");
   $("#projectSelect").value = state.projectId || "";
@@ -135,7 +149,7 @@ async function loadProjects() {
 }
 async function loadAllTasks() {
   if (!state.projectId) return;
-  const { tasks, summary } = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}`);
+  const { tasks, summary } = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&model=${state.model}`);
   const episodes = [...new Set(tasks.map(t => t.episode))];
   if (!episodes.includes(state.episode)) state.episode = episodes[0] || 1;
   $("#episodeSelect").innerHTML = episodes.map(e => `<option value="${e}">第${String(e).padStart(2,"0")}集</option>`).join("");
@@ -143,7 +157,7 @@ async function loadAllTasks() {
   updateProgress(summary); await loadTasks();
 }
 async function loadTasks(selectId) {
-  const data = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&episode=${state.episode}`);
+  const data = await api(`/api/tasks?project=${encodeURIComponent(state.projectId)}&episode=${state.episode}&model=${state.model}`);
   state.tasks = data.tasks; renderTaskList();
   const target = state.tasks.find(t => t.id === selectId) || state.tasks.find(t => t.status !== "已完成") || state.tasks[0];
   if (target) selectTask(target.id); else $("#taskEditor").innerHTML = '<div class="empty-state">这一集还没有任务</div>';
@@ -175,8 +189,8 @@ function renderEditor() {
       <label class="field-label" for="referenceHint">素材说明</label><textarea id="referenceHint" class="short-field reference-note">${esc(t.reference_hint)}</textarea>
     </section>
     <section class="editor-panel" data-editor-panel="prompt" hidden>
-      <details class="platform-steps"><summary>操作步骤</summary><ol><li>下载本镜参考图并上传到视频生成平台</li><li>复制整段提示词到唯一输入框</li><li>在每个“@文件名”原位置选择同名参考图</li></ol></details>
-      <div class="section-heading prompt-heading"><div><h3>专业单框提示词</h3><p>已合并按秒分镜、3D质量和首尾衔接</p></div><button class="copy copy-main" data-copy="platformPrompt">复制整段</button></div>
+      <details class="platform-steps"><summary>${modelProfile().name}操作步骤</summary><ol><li>下载本镜参考图并上传到视频生成平台</li><li>复制整段${modelProfile().name}提示词到唯一输入框</li><li>在每个“@文件名”原位置选择同名参考图</li></ol></details>
+      <div class="section-heading prompt-heading"><div><h3>${modelProfile().name}专业单框提示词</h3><p>已按当前模型合并按秒分镜、3D质量和同模型首尾衔接</p></div><button class="copy copy-main" data-copy="platformPrompt">复制整段</button></div>
       <textarea id="platformPrompt" class="prompt platform-prompt" readonly>${esc(buildPlatformPrompt(t))}</textarea><textarea id="prompt" class="hidden">${esc(t.prompt)}</textarea>
     </section>
     <section class="editor-panel" data-editor-panel="post" hidden>
@@ -193,29 +207,29 @@ function renderEditor() {
   $("#saveTask").onclick = () => saveTask(); $("#markRetry").onclick = () => saveTask("需重做"); $("#nextTask").onclick = nextTask;
 }
 async function saveTask(status) {
-  const body = { reference_hint:$("#referenceHint").value, prompt:$("#prompt").value, dialogue:$("#dialogue").value, continuity:$("#continuity").value, notes:$("#notes").value };
+  const body = { model:state.model, reference_hint:$("#referenceHint").value, prompt:$("#prompt").value, dialogue:$("#dialogue").value, continuity:$("#continuity").value, notes:$("#notes").value };
   if (status) body.status = status;
-  const { task } = await api(`/api/tasks/${state.current.id}`, { method:"PATCH", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+  const { task } = await api(`/api/tasks/${state.current.id}?model=${state.model}`, { method:"PATCH", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
   Object.assign(state.current, task); renderTaskList(); renderEditor(); toast("已保存");
 }
 function nextTask() { const i = state.tasks.findIndex(t => t.id === state.current.id); if (i < state.tasks.length - 1) selectTask(state.tasks[i+1].id); else toast("已经是本集最后一镜"); }
 function renderOutput() {
   const t = state.current; const has = t.start_frame_url && t.tail_frame_url;
-  $("#frames").classList.toggle("hidden", !has); $("#uploadState").textContent = has ? "已提取" : "等待上传";
+  applyModelUi(); $("#frames").classList.toggle("hidden", !has); $("#uploadState").textContent = has ? `${modelProfile().name}已提取` : `${modelProfile().name}等待上传`;
   if (has) {
     const stamp = `?v=${Date.now()}`; $("#startImage").src = t.start_frame_url+stamp; $("#tailImage").src = t.tail_frame_url+stamp;
     $("#startLink").href = t.start_frame_url; $("#tailLink").href = t.tail_frame_url;
     $("#startTime").textContent = `${Number(t.start_time).toFixed(2)}s`; $("#tailTime").textContent = `${Number(t.tail_time).toFixed(2)}s`;
   }
   const idx = state.tasks.findIndex(x => x.id === t.id); const next = state.tasks[idx+1];
-  $("#nextHint").textContent = !next ? "这是本集最后一个镜头。" : next.shot_type === "尾帧续拍" ? `下一镜 ${next.id} 必须使用本镜推荐尾帧，剧情和画面连续生成。` : `下一镜 ${next.id} 为新机位：剧情连续但不使用本镜尾帧，剪辑时直接硬切。`;
+  $("#nextHint").textContent = !next ? "这是本集最后一个镜头。" : next.shot_type === "尾帧续拍" ? `下一镜 ${next.id} 必须使用本镜的${modelProfile().name}尾帧；不要混用另一模型的尾帧。` : `下一镜 ${next.id} 为新机位：剧情连续但不使用本镜尾帧，剪辑时直接硬切。`;
 }
 async function uploadVideo(file) {
   if (!state.current || !file) return; const form = new FormData(); form.append("video", file);
   $("#uploadProgress").classList.remove("hidden"); $("#dropZone").classList.add("hidden");
   try {
-    const { task } = await api(`/api/tasks/${state.current.id}/video`, { method:"POST", body:form });
-    const index = state.tasks.findIndex(t => t.id === task.id); state.tasks[index] = task; state.current = task; renderTaskList(); renderOutput(); await loadProjects(); selectTask(task.id); toast("视频已保存，首尾帧已自动挑选");
+    const { task } = await api(`/api/tasks/${state.current.id}/video?model=${state.model}`, { method:"POST", body:form });
+    const index = state.tasks.findIndex(t => t.id === task.id); state.tasks[index] = task; state.current = task; renderTaskList(); renderOutput(); await loadProjects(); selectTask(task.id); toast(`${modelProfile().name}视频已保存，首尾帧已独立提取`);
   } catch(e) { toast(e.message); }
   finally { $("#uploadProgress").classList.add("hidden"); $("#dropZone").classList.remove("hidden"); $("#videoInput").value = ""; }
 }
@@ -224,6 +238,7 @@ $("#loginForm").onsubmit = async e => { e.preventDefault(); $("#loginError").tex
 $("#logout").onclick = async () => { await fetch("/api/logout",{method:"POST"}); showLogin(); };
 $("#projectSelect").onchange = async e => { state.projectId=e.target.value; state.episode=1; await loadAllTasks(); };
 $("#episodeSelect").onchange = async e => { state.episode=Number(e.target.value); await loadTasks(); };
+$("#modelSelect").onchange = async e => { state.model=e.target.value === "grok" ? "grok" : "h3"; localStorage.setItem("videoModel", state.model); state.current=null; applyModelUi(); await loadProjects(); toast(`已切换到${modelProfile().name}分轨`); };
 $("#videoInput").onchange = e => uploadVideo(e.target.files[0]);
 const drop = $("#dropZone"); drop.ondragover = e => { e.preventDefault(); drop.classList.add("drag"); }; drop.ondragleave = () => drop.classList.remove("drag"); drop.ondrop = e => { e.preventDefault(); drop.classList.remove("drag"); uploadVideo(e.dataTransfer.files[0]); };
 $("#importFile").onchange = async e => { const f=e.target.files[0]; if(!f)return; try { const data=JSON.parse(await f.text()); await api("/api/projects/import",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(data)}); await loadProjects(); toast("任务已导入"); } catch(err){toast(err.message)} e.target.value=""; };
@@ -280,4 +295,5 @@ $("#closeSystem").onclick = closeSystem;
 $("#systemModal").onclick = e => { if (e.target === $("#systemModal")) closeSystem(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSystem(); });
 
+applyModelUi();
 loadProjects().catch(e => { if (e.message !== "请先登录") toast(e.message); });

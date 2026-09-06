@@ -20,7 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.11.0";
+const APP_VERSION = "1.12.0";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "videos"), { recursive: true });
@@ -60,6 +60,19 @@ db.exec(`
     FOREIGN KEY(project_id) REFERENCES projects(id)
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(project_id, episode, clip);
+  CREATE TABLE IF NOT EXISTS task_outputs (
+    task_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    video_path TEXT,
+    start_frame_path TEXT,
+    tail_frame_path TEXT,
+    start_time REAL,
+    tail_time REAL,
+    status TEXT NOT NULL DEFAULT '待生成',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(task_id, model),
+    FOREIGN KEY(task_id) REFERENCES tasks(id)
+  );
 `);
 
 await seedIfEmpty();
@@ -67,9 +80,11 @@ await upgradeBundledPrompts();
 await upgradeEpisodeOneContinuity();
 await upgradeEpisodeOnePromptPack();
 db.exec(`UPDATE tasks SET prompt = replace(replace(prompt, '2D写实动画', '高质量3D写实国漫动画'), '二维写实动画', '高质量3D写实国漫动画') WHERE prompt LIKE '%2D%' OR prompt LIKE '%二维%'`);
+migrateLegacyOutputs();
 
 function now() { return new Date().toISOString(); }
 function safeId(value) { return String(value || "").replace(/[^a-zA-Z0-9_-]/g, ""); }
+function modelId(value) { return String(value || "h3").toLowerCase() === "grok" ? "grok" : "h3"; }
 function json(res, status, value, headers = {}) {
   const body = JSON.stringify(value);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), ...headers });
@@ -186,13 +201,45 @@ async function parseMultipart(req) {
   });
   return request.formData();
 }
-function taskRow(row) {
-  if (!row) return null;
-  const pub = p => p ? `/media/${path.relative(DATA_DIR, p).split(path.sep).map(encodeURIComponent).join("/")}` : null;
-  return { ...row, video_url: pub(row.video_path), start_frame_url: pub(row.start_frame_path), tail_frame_url: pub(row.tail_frame_path) };
+function migrateLegacyOutputs() {
+  db.prepare(`INSERT OR IGNORE INTO task_outputs(task_id,model,video_path,start_frame_path,tail_frame_path,start_time,tail_time,status,updated_at)
+    SELECT id,'h3',video_path,start_frame_path,tail_frame_path,start_time,tail_time,status,updated_at FROM tasks`).run();
 }
-function summary(projectId) {
-  const row = db.prepare("SELECT COUNT(*) total, SUM(status='已完成') completed, SUM(status='需重做') retry FROM tasks WHERE project_id=?").get(projectId);
+function outputFor(taskId, model) {
+  return db.prepare("SELECT * FROM task_outputs WHERE task_id=? AND model=?").get(taskId, modelId(model));
+}
+function setOutput(taskId, model, values = {}) {
+  const selected = modelId(model);
+  const current = outputFor(taskId, selected) || {};
+  const merged = {
+    video_path: values.video_path ?? current.video_path ?? null,
+    start_frame_path: values.start_frame_path ?? current.start_frame_path ?? null,
+    tail_frame_path: values.tail_frame_path ?? current.tail_frame_path ?? null,
+    start_time: values.start_time ?? current.start_time ?? null,
+    tail_time: values.tail_time ?? current.tail_time ?? null,
+    status: values.status ?? current.status ?? "待生成"
+  };
+  db.prepare(`INSERT INTO task_outputs(task_id,model,video_path,start_frame_path,tail_frame_path,start_time,tail_time,status,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,model) DO UPDATE SET
+    video_path=excluded.video_path,start_frame_path=excluded.start_frame_path,tail_frame_path=excluded.tail_frame_path,
+    start_time=excluded.start_time,tail_time=excluded.tail_time,status=excluded.status,updated_at=excluded.updated_at`).run(
+      taskId, selected, merged.video_path, merged.start_frame_path, merged.tail_frame_path,
+      merged.start_time, merged.tail_time, merged.status, now()
+    );
+}
+function taskRow(row, model = "h3") {
+  if (!row) return null;
+  const selected = modelId(model);
+  const output = outputFor(row.id, selected) || { status: "待生成" };
+  const pub = p => p ? `/media/${path.relative(DATA_DIR, p).split(path.sep).map(encodeURIComponent).join("/")}` : null;
+  const { video_path, start_frame_path, tail_frame_path, start_time, tail_time, status, ...task } = row;
+  return { ...task, model: selected, status: output.status, video_url: pub(output.video_path), start_frame_url: pub(output.start_frame_path), tail_frame_url: pub(output.tail_frame_path), start_time: output.start_time, tail_time: output.tail_time };
+}
+function summary(projectId, model = "h3") {
+  const row = db.prepare(`SELECT COUNT(*) total,
+    SUM(COALESCE(o.status,'待生成')='已完成') completed,
+    SUM(COALESCE(o.status,'待生成')='需重做') retry
+    FROM tasks t LEFT JOIN task_outputs o ON o.task_id=t.id AND o.model=? WHERE t.project_id=?`).get(modelId(model), projectId);
   return { total: Number(row.total || 0), completed: Number(row.completed || 0), retry: Number(row.retry || 0) };
 }
 async function seedIfEmpty() {
@@ -251,6 +298,7 @@ function importProject(data) {
     db.exec("ROLLBACK");
     throw error;
   }
+  migrateLegacyOutputs();
   return projectId;
 }
 async function serveStatic(res, pathname) {
@@ -309,26 +357,36 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { name, title, content });
     }
     if (pathname === "/api/projects" && req.method === "GET") {
-      const projects = db.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all().map(p => ({ ...p, summary: summary(p.id) })); return json(res, 200, { projects });
+      const selectedModel = modelId(url.searchParams.get("model"));
+      const projects = db.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all().map(p => ({ ...p, summary: summary(p.id, selectedModel) }));
+      return json(res, 200, { model: selectedModel, projects });
     }
     if (pathname === "/api/projects/import" && req.method === "POST") {
       const data = await jsonBody(req, 10 * 1024 * 1024); const id = importProject(data); return json(res, 200, { ok: true, project_id: id });
     }
     if (pathname === "/api/tasks" && req.method === "GET") {
       const project = safeId(url.searchParams.get("project")); const episode = Number(url.searchParams.get("episode") || 0);
+      const selectedModel = modelId(url.searchParams.get("model"));
       let rows = episode ? db.prepare("SELECT * FROM tasks WHERE project_id=? AND episode=? ORDER BY clip").all(project, episode) : db.prepare("SELECT * FROM tasks WHERE project_id=? ORDER BY episode,clip").all(project);
-      return json(res, 200, { tasks: rows.map(taskRow), summary: summary(project) });
+      return json(res, 200, { model: selectedModel, tasks: rows.map(row => taskRow(row, selectedModel)), summary: summary(project, selectedModel) });
     }
     const taskMatch = pathname.match(/^\/api\/tasks\/([a-zA-Z0-9_-]+)$/);
-    if (taskMatch && req.method === "GET") return json(res, 200, { task: taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(taskMatch[1])) });
+    if (taskMatch && req.method === "GET") {
+      const selectedModel = modelId(url.searchParams.get("model"));
+      return json(res, 200, { task: taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(taskMatch[1]), selectedModel) });
+    }
     if (taskMatch && req.method === "PATCH") {
-      const body = await jsonBody(req, 1024 * 1024); const allowed = ["status","notes","prompt","dialogue","continuity","reference_hint","shot_type"];
-      const fields = allowed.filter(k => Object.hasOwn(body, k)); if (!fields.length) return fail(res, 400, "没有可更新字段");
-      db.prepare(`UPDATE tasks SET ${fields.map(k => `${k}=?`).join(",")},updated_at=? WHERE id=?`).run(...fields.map(k => String(body[k] ?? "")), now(), taskMatch[1]);
-      return json(res, 200, { task: taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(taskMatch[1])) });
+      const body = await jsonBody(req, 1024 * 1024); const selectedModel = modelId(body.model || url.searchParams.get("model"));
+      const allowed = ["notes","prompt","dialogue","continuity","reference_hint","shot_type"];
+      const fields = allowed.filter(k => Object.hasOwn(body, k));
+      if (!fields.length && !Object.hasOwn(body, "status")) return fail(res, 400, "没有可更新字段");
+      if (fields.length) db.prepare(`UPDATE tasks SET ${fields.map(k => `${k}=?`).join(",")},updated_at=? WHERE id=?`).run(...fields.map(k => String(body[k] ?? "")), now(), taskMatch[1]);
+      if (Object.hasOwn(body, "status")) setOutput(taskMatch[1], selectedModel, { status: String(body.status || "待生成") });
+      return json(res, 200, { task: taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(taskMatch[1]), selectedModel) });
     }
     const uploadMatch = pathname.match(/^\/api\/tasks\/([a-zA-Z0-9_-]+)\/video$/);
     if (uploadMatch && req.method === "POST") {
+      const selectedModel = modelId(url.searchParams.get("model"));
       const task = db.prepare("SELECT * FROM tasks WHERE id=?").get(uploadMatch[1]); if (!task) return fail(res, 404, "任务不存在");
       const tools = await mediaToolStatus();
       if (!tools.ready) return fail(res, 503, "服务器尚未安装完整的FFmpeg组件，请安装ffmpeg和ffprobe并重启服务后再上传。");
@@ -337,12 +395,12 @@ const server = http.createServer(async (req, res) => {
       if (!file || typeof file.arrayBuffer !== "function") return fail(res, 400, "请选择视频文件");
       if (file.size > MAX_UPLOAD_MB * 1024 * 1024) return fail(res, 413, `视频不能超过${MAX_UPLOAD_MB}MB`);
       const ext = path.extname(file.name || "").toLowerCase(); if (![".mp4",".mov",".webm",".mkv"].includes(ext)) return fail(res, 400, "仅支持MP4、MOV、WEBM或MKV");
-      const ep = `EP${String(task.episode).padStart(2,"0")}`; const base = `${ep}_C${String(task.clip).padStart(2,"0")}`;
-      const videoDir = path.join(DATA_DIR, "videos", ep); const frameDir = path.join(DATA_DIR, "frames", ep); await fs.mkdir(videoDir,{recursive:true}); await fs.mkdir(frameDir,{recursive:true});
+      const ep = `EP${String(task.episode).padStart(2,"0")}`; const base = `${ep}_C${String(task.clip).padStart(2,"0")}_${selectedModel.toUpperCase()}`;
+      const videoDir = path.join(DATA_DIR, "videos", selectedModel, ep); const frameDir = path.join(DATA_DIR, "frames", selectedModel, ep); await fs.mkdir(videoDir,{recursive:true}); await fs.mkdir(frameDir,{recursive:true});
       const videoPath = path.join(videoDir, `${base}${ext}`); await fs.writeFile(videoPath, Buffer.from(await file.arrayBuffer()));
       const result = await extractBestFrames(videoPath, frameDir, base);
-      db.prepare("UPDATE tasks SET video_path=?,start_frame_path=?,tail_frame_path=?,start_time=?,tail_time=?,status='已完成',updated_at=? WHERE id=?").run(videoPath,result.startPath,result.tailPath,result.startTime,result.tailTime,now(),task.id);
-      return json(res, 200, { ok:true, duration:result.duration, task:taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(task.id)) });
+      setOutput(task.id, selectedModel, { video_path:videoPath, start_frame_path:result.startPath, tail_frame_path:result.tailPath, start_time:result.startTime, tail_time:result.tailTime, status:"已完成" });
+      return json(res, 200, { ok:true, model:selectedModel, duration:result.duration, task:taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(task.id), selectedModel) });
     }
     if (pathname.startsWith("/media/")) return serveMedia(req, res, pathname);
     if (pathname.startsWith("/api/")) return fail(res, 404, "接口不存在");
@@ -353,7 +411,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`H3制作台已启动：http://${HOST}:${PORT}`);
+  console.log(`多模型漫剧制作台已启动：http://${HOST}:${PORT}`);
   if (ADMIN_PASSWORD === "change-me-now") console.warn("警告：请设置ADMIN_PASSWORD后再开放公网访问");
   mediaToolStatus().then(status => {
     if (!status.ready) console.warn("警告：缺少FFmpeg或ffprobe，视频上传暂不可用。请安装FFmpeg或重新构建Docker镜像。");
