@@ -20,7 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.15.0";
+const APP_VERSION = "1.16.0";
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "tmp", "uploads"), { recursive: true });
@@ -79,6 +79,7 @@ await seedIfEmpty();
 await upgradeBundledPrompts();
 await upgradeEpisodeOneContinuity();
 await upgradeEpisodeOnePromptPack();
+await upgradeEpisodeTwoPromptPack();
 db.exec(`UPDATE tasks SET prompt = replace(replace(prompt, '2D写实动画', '高质量3D写实国漫动画'), '二维写实动画', '高质量3D写实国漫动画') WHERE prompt LIKE '%2D%' OR prompt LIKE '%二维%'`);
 migrateLegacyOutputs();
 
@@ -280,6 +281,26 @@ async function upgradeEpisodeOnePromptPack() {
   }
   await fs.writeFile(marker, JSON.stringify({ version:"1.9.0", applied_at:stamp, project_id:projectId }, null, 2));
 }
+async function upgradeEpisodeTwoPromptPack() {
+  const marker = path.join(DATA_DIR, "ep02-prompt-pack-v1.16.0.json");
+  try { await fs.access(marker); return; } catch {}
+  const seed = JSON.parse(await fs.readFile(path.join(ROOT, "seed-project.json"), "utf8"));
+  const projectId = safeId(seed.id);
+  const stamp = now();
+  const tasks = (seed.tasks || []).filter(task => Number(task.episode) === 2);
+  const stmt = db.prepare(`INSERT INTO tasks(id,project_id,episode,clip,title,duration,shot_type,reference_hint,prompt,dialogue,continuity,status,notes,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET episode=excluded.episode,clip=excluded.clip,title=excluded.title,duration=excluded.duration,shot_type=excluded.shot_type,reference_hint=excluded.reference_hint,prompt=excluded.prompt,dialogue=excluded.dialogue,continuity=excluded.continuity,updated_at=excluded.updated_at`);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const task of tasks) stmt.run(safeId(task.id), projectId, 2, Number(task.clip), String(task.title), Number(task.duration), String(task.shot_type), String(task.reference_hint), String(task.prompt), String(task.dialogue), String(task.continuity), String(task.status || "待生成"), String(task.notes || ""), stamp);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  migrateLegacyOutputs();
+  await fs.writeFile(marker, JSON.stringify({ version:"1.16.0", applied_at:stamp, project_id:projectId, tasks:tasks.length }, null, 2));
+}
 function importProject(data) {
   if (!data || !data.id || !data.title || !Array.isArray(data.tasks)) throw new Error("项目JSON格式不正确");
   const projectId = safeId(data.id); if (!projectId) throw new Error("项目ID不正确");
@@ -404,6 +425,7 @@ const server = http.createServer(async (req, res) => {
         const result = await extractBestFrames(videoPath, frameDir, base);
         setOutput(task.id, selectedModel, { video_path:null, start_frame_path:result.startPath, tail_frame_path:result.tailPath, start_time:result.startTime, tail_time:result.tailTime, status:"已完成" });
         if (previousVideo && path.resolve(previousVideo).startsWith(path.join(DATA_DIR, "videos") + path.sep)) await fs.rm(previousVideo, { force:true }).catch(() => {});
+        await fs.rm(videoPath, { force:true });
         return json(res, 200, { ok:true, model:selectedModel, duration:result.duration, original_video_retained:false, task:taskRow(db.prepare("SELECT * FROM tasks WHERE id=?").get(task.id), selectedModel) });
       } finally {
         await fs.rm(videoPath, { force:true }).catch(() => {});
