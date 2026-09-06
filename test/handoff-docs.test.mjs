@@ -17,3 +17,20 @@ test("固定参考图索引中的现有资产都能读取", async () => {
   assert.ok(existing.length >= 15);
   for (const file of existing) await access(new URL(`../public/references/${file}`, import.meta.url));
 });
+
+test("交接文档锁定视觉指纹、场景状态和跨集开拍门禁", async () => {
+  const visual = await readFile(new URL("../docs/04_视觉声音与年代规范.md", import.meta.url), "utf8");
+  const workflow = await readFile(new URL("../docs/05_H3生产与首尾帧规范.md", import.meta.url), "utf8");
+  const handoff = await readFile(new URL("../docs/06_AI接手说明.md", import.meta.url), "utf8");
+  const ep02 = await readFile(new URL("../docs/12_EP02镜头连续性与生产交接.md", import.meta.url), "utf8");
+
+  assert.match(visual, /项目视觉指纹/);
+  assert.match(visual, /空间骨架层/);
+  assert.match(visual, /持续状态层/);
+  assert.match(visual, /临时表演层/);
+  assert.match(visual, /@参考图.*真正起作用的时间段/);
+  assert.match(workflow, /场景状态账本/);
+  assert.match(workflow, /单集开拍门禁/);
+  assert.match(handoff, /预制作完成、待上一集验收/);
+  assert.match(ep02, /待EP01验收和开拍门禁/);
+});

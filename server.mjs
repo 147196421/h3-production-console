@@ -15,12 +15,14 @@ const DOCS_DIR = path.join(ROOT, "docs");
 const DB_PATH = path.join(DATA_DIR, "h3-console.sqlite");
 const PORT = Number(process.env.PORT || 8926);
 const HOST = process.env.HOST || "0.0.0.0";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me-now";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.16.1";
+const APP_VERSION = "1.16.2";
+
+if (!ADMIN_PASSWORD) throw new Error("缺少ADMIN_PASSWORD环境变量，服务已拒绝使用不安全的默认口令启动");
 
 await fs.mkdir(DATA_DIR, { recursive: true });
 await fs.mkdir(path.join(DATA_DIR, "tmp", "uploads"), { recursive: true });
@@ -446,7 +448,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`多模型漫剧制作台已启动：http://${HOST}:${PORT}`);
-  if (ADMIN_PASSWORD === "change-me-now") console.warn("警告：请设置ADMIN_PASSWORD后再开放公网访问");
   mediaToolStatus().then(status => {
     if (!status.ready) console.warn("警告：缺少FFmpeg或ffprobe，视频上传暂不可用。请安装FFmpeg或重新构建Docker镜像。");
   });
