@@ -20,7 +20,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 300);
 const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE_BIN = process.env.FFPROBE_BIN || "ffprobe";
-const APP_VERSION = "1.16.3";
+const APP_VERSION = "1.16.4";
 
 if (!ADMIN_PASSWORD) throw new Error("缺少ADMIN_PASSWORD环境变量，服务已拒绝使用不安全的默认口令启动");
 
